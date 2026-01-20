@@ -14,7 +14,7 @@ This library provides a standardized way to register frames with the Blizzard Ed
 
 ### As a Dependency
 Add the following line to your addon's `.toc` file to ensure the library loads first:
-```toc
+
 ## RequiredDeps: FerrozEditModeLib
 
 ## Usage
