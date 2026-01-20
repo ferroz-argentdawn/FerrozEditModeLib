@@ -2,5 +2,5 @@
 ## Title: FerrozEditModeLib
 ## Notes: This library provides a standardized way to register frames with the Blizzard Edit Mode system
 ## Author: FerrozArgentDawn
-## Version: 1.0.0
+## Version: 1.0.1
 FerrozEditModeLib.lua
