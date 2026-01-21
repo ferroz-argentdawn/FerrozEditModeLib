@@ -4,3 +4,4 @@ ignore:
   - .cursor
   - .luarc.json
   - *.code-workspace
+  - *.ps1

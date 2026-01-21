@@ -52,7 +52,7 @@ function FerrozEditModeLib:ResetPosition(frame, settingsTable)
 end
 
 -- The Registration Core
-function FerrozEditModeLib:Register(frame, settingsTable, onEnter, onExit)
+function FerrozEditModeLib:Register(frame, settingsTable, onEnter, onExit, onLayoutSelected)
     frame.isEditing = false
     settingsTable.layouts = settingsTable.layouts or {}
 
@@ -114,6 +114,12 @@ function FerrozEditModeLib:Register(frame, settingsTable, onEnter, onExit)
         if onExit then onExit(frame) end
     end)
 
+    EventRegistry:RegisterCallback("EditMode.LayoutSelected", function()
+        
+        if onLayoutSelected then onLayoutSelected(frame) end
+    end)
+    
+
     -- 4. Layout Swapping Logic
     -- This ensures that when the user swaps profiles, the frame moves immediately
     frame:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED")
@@ -128,4 +134,6 @@ function FerrozEditModeLib:Register(frame, settingsTable, onEnter, onExit)
             end
         end
     end)
+    --after initialization, apply the layout and bubble that up
+    --todo 
 end
