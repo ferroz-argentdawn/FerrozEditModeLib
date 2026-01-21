@@ -28,16 +28,18 @@ function FerrozEditModeLib:GetCurrentLayoutName()
 end 
 
 function FerrozEditModeLib:ApplyLayout(frame, settingsTable)
+    print("Apply Layout " .. frame:GetName())
     local layoutName = self:GetCurrentLayoutName()
     local s = settingsTable.layouts and settingsTable.layouts[layoutName]
-    
+
     if s then
         frame:ClearAllPoints()
         frame:SetPoint(s.point, UIParent, s.relativePoint, s.xOfs, s.yOfs)
         frame:SetScale(s.scale or 1.0)
-    elseif settingsTable.scale then
-        -- Legacy fallback
-        frame:SetScale(settingsTable.scale)
+    else
+        frame:ClearAllPoints()
+        frame:SetPoint("CENTER", UIParent, "CENTER")
+        frame:SetScale(1.0)
     end
 end
 
@@ -114,26 +116,18 @@ function FerrozEditModeLib:Register(frame, settingsTable, onEnter, onExit, onLay
         if onExit then onExit(frame) end
     end)
 
-    EventRegistry:RegisterCallback("EditMode.LayoutSelected", function()
-        
-        if onLayoutSelected then onLayoutSelected(frame) end
-    end)
-    
-
-    -- 4. Layout Swapping Logic
-    -- This ensures that when the user swaps profiles, the frame moves immediately
-    frame:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED")
-    frame:HookScript("OnEvent", function(self, event)
+    --Layout Swapping Logic This ensures that when the user swaps profiles, the frame moves immediately
+    local editModeFrameWatcher = CreateFrame("Frame")
+    editModeFrameWatcher:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED")
+    editModeFrameWatcher:HookScript("OnEvent", function(self, event)
         if event == "EDIT_MODE_LAYOUTS_UPDATED" then
-            local layoutName = FerrozEditModeLib:GetCurrentLayoutName()
-            local s = settingsTable.layouts[layoutName]
-            if s then
-                self:ClearAllPoints()
-                self:SetPoint(s.point, UIParent, s.relativePoint, s.xOfs, s.yOfs)
-                self:SetScale(s.scale or 1.0)
-            end
+            -- Delay by 0.1s so GetCurrentLayoutName() gets the NEW layout, not the OLD one
+            C_Timer.After(0.1, function()
+                FerrozEditModeLib:ApplyLayout(frame, settingsTable)
+                if onLayoutSelected then 
+                    onLayoutSelected(frame) 
+                end
+            end)
         end
     end)
-    --after initialization, apply the layout and bubble that up
-    --todo 
 end
