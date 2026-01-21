@@ -28,7 +28,6 @@ function FerrozEditModeLib:GetCurrentLayoutName()
 end 
 
 function FerrozEditModeLib:ApplyLayout(frame, settingsTable)
-    print("Apply Layout " .. frame:GetName())
     local layoutName = self:GetCurrentLayoutName()
     local s = settingsTable.layouts and settingsTable.layouts[layoutName]
 
