@@ -1,6 +1,6 @@
 FerrozEditModeLib = {}
 FerrozEditModeLib.registeredFrames = {}
-FerrozEditModeLib.DebugMode = false
+FerrozEditModeLib.DebugMode = true
 
 function FerrozEditModeLib:Log(...)
     if not self.DebugMode then return end
@@ -67,6 +67,7 @@ end
 function FerrozEditModeLib:ApplyLayout(frame)
     frame.isDirty = false
     local layoutName = self:GetCurrentLayoutName()
+    FerrozEditModeLib:Log("FerrozEditModeLib:ApplyLayout: " .. (frame:GetName() or "Unknown") .. " - " .. layoutName)
     local settingsTable = frame.settingsTable
     local s = settingsTable.layouts and settingsTable.layouts[layoutName]
 
@@ -100,7 +101,9 @@ function FerrozEditModeLib:Register(frame, settingsTable, onEnter, onExit)
     frame.isDirty = false
     settingsTable.layouts = settingsTable.layouts or {}
 
-    self:ApplyLayout(frame)
+    RunNextFrame(function()
+        self:ApplyLayout(frame)
+    end)
 
     local function SnapshotRevertPosition()
         local point, relFrame, rel, x, y = frame:GetPoint()
