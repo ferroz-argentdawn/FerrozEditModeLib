@@ -65,6 +65,7 @@ function FerrozEditModeLib:GetCurrentLayoutName()
 end 
 
 function FerrozEditModeLib:ApplyLayout(frame)
+    frame.isDirty = false
     local layoutName = self:GetCurrentLayoutName()
     local settingsTable = frame.settingsTable
     local s = settingsTable.layouts and settingsTable.layouts[layoutName]
@@ -96,6 +97,7 @@ end
 function FerrozEditModeLib:Register(frame, settingsTable, onEnter, onExit)
     frame.settingsTable = settingsTable
     frame.isEditing = false
+    frame.isDirty = false
     settingsTable.layouts = settingsTable.layouts or {}
 
     self:ApplyLayout(frame)
@@ -131,6 +133,7 @@ function FerrozEditModeLib:Register(frame, settingsTable, onEnter, onExit)
 
     -- Internal function to save current state to the active layout
     local function SaveCurrentPosition()
+        if frame and not frame.isDirty then return end
         local cp = frame.currentPositionState
         if not cp then return end -- Nothing new to save
         
@@ -150,6 +153,7 @@ function FerrozEditModeLib:Register(frame, settingsTable, onEnter, onExit)
     end
 
     local function RevertPosition()
+        if frame and not frame.isDirty then return end
         local op = frame.revertPositionState
         if(op) then
             frame:ClearAllPoints() -- Always clear before re-anchoring
@@ -169,6 +173,7 @@ function FerrozEditModeLib:Register(frame, settingsTable, onEnter, onExit)
                 self:ClearAllPoints()
                 self:SetPoint("CENTER", UIParent, "BOTTOMLEFT", (centerX * oldScale) / newScale, (centerY * oldScale) / newScale)
             end
+            self.isDirty = true
             FerrozEditModeLib:SetDirty()
             SnapshotCurrentPosition()
         end
@@ -180,6 +185,7 @@ function FerrozEditModeLib:Register(frame, settingsTable, onEnter, onExit)
     end)
     frame:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
+        self.isDirty = true
         FerrozEditModeLib:SetDirty()
         SnapshotCurrentPosition()
     end)
@@ -226,28 +232,15 @@ if not FerrozEditModeLib.HooksInitialized then
                 if f.settingsTable then
                     FerrozEditModeLib:ApplyLayout(f)
                 end
-
-                -- 2. If we are in Edit Mode, take a fresh snapshot of the new layout
-                -- Only do this if there isn't a pending unsaved session.
-                if f.isEditing and not f.revertPositionState and f.SnapshotRevertPosition then
-                    f:SnapshotRevertPosition()
-                end
-                
-                -- 3. Trigger the optional callback
-                if f.onLayoutSelectedCallback then
-                    f.onLayoutSelectedCallback(f)
-                end
             end
         end)
     end)
 
     hooksecurefunc(EditModeManagerFrame, "SaveLayouts", function()
         FerrozEditModeLib:Log("Manager SaveLayouts detected!")
-        RunNextFrame(function()
-            for _, f in ipairs(FerrozEditModeLib.registeredFrames) do
-                f:SaveCurrentPosition()      -- Save to its specific table
-            end 
-        end)
+        for _, f in ipairs(FerrozEditModeLib.registeredFrames) do
+            f:SaveCurrentPosition()      -- Save to its specific table
+        end
     end)
 
     -- This catches Golden Button AND the "Discard" button on the Popup
@@ -262,14 +255,16 @@ if not FerrozEditModeLib.HooksInitialized then
         end
     end)
 
-    EditModeManagerFrame.RevertAllChangesButton:HookScript("OnClick", function()
-        FerrozEditModeLib:Log("Physical Revert Button Clicked")
-        for _, f in ipairs(FerrozEditModeLib.registeredFrames or {}) do
-            if f.revertPositionState and f.RevertPosition then
-                f:RevertPosition()
+    if EditModeManagerFrame.RevertAllChangesButton then
+        EditModeManagerFrame.RevertAllChangesButton:HookScript("OnClick", function()
+            FerrozEditModeLib:Log("Physical Revert Button Clicked")
+            for _, f in ipairs(FerrozEditModeLib.registeredFrames or {}) do
+                if f.revertPositionState and f.RevertPosition then
+                    f:RevertPosition()
+                end
             end
-        end
-    end)
+        end)
+    end
 
     FerrozEditModeLib.HooksInitialized = true
 end
