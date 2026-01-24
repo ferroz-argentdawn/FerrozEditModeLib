@@ -146,6 +146,7 @@ function FerrozEditModeLib:Register(frame, settingsTable, onEnter, onExit)
             yOfs = cp.yOfs,
             scale = cp.scale
         }
+        SnapshotRevertPosition()
     end
 
     local function RevertPosition()
@@ -245,7 +246,6 @@ if not FerrozEditModeLib.HooksInitialized then
         RunNextFrame(function()
             for _, f in ipairs(FerrozEditModeLib.registeredFrames) do
                 f:SaveCurrentPosition()      -- Save to its specific table
-                f.revertPositionState = nil -- Clear the 'undo' memory
             end 
         end)
     end)
@@ -258,7 +258,6 @@ if not FerrozEditModeLib.HooksInitialized then
         for _, f in ipairs(FerrozEditModeLib.registeredFrames or {}) do
             if f.revertPositionState and f.RevertPosition then
                 f:RevertPosition()
-                f.revertPositionState = nil -- Session ended by discard
             end
         end
     end)
@@ -268,7 +267,6 @@ if not FerrozEditModeLib.HooksInitialized then
         for _, f in ipairs(FerrozEditModeLib.registeredFrames or {}) do
             if f.revertPositionState and f.RevertPosition then
                 f:RevertPosition()
-                f.revertPositionState = nil -- Session ended by discard
             end
         end
     end)
