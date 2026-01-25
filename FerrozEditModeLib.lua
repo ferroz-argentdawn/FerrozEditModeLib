@@ -1,6 +1,6 @@
 FerrozEditModeLib = {}
 FerrozEditModeLib.registeredFrames = {}
-FerrozEditModeLib.DebugMode = true
+FerrozEditModeLib.DebugMode = false
 
 function FerrozEditModeLib:Log(...)
     if not self.DebugMode then return end
