@@ -17,15 +17,18 @@ function FerrozEditModeLib:Log(...)
         if success then
             msg = formatted
         else
-            -- If formatting fails (wrong tags), just join them like print()
             msg = table.concat({tostringall(...)}, " ")
         end
     else
-        -- Otherwise, just join everything with spaces (like the real print)
         msg = table.concat({tostringall(...)}, " ")
     end
 
     print("|cff00ff00[FerrozLib]|r " .. msg)
+end
+local log=FerrozEditModeLib.Log
+
+function FerrozEditModeLib:AnnounceInit()
+    --todo
 end
 
 function FerrozEditModeLib:SetDirty()
@@ -95,11 +98,17 @@ function FerrozEditModeLib:ResetPosition(frame)
 end
 
 -- The Registration Core
-function FerrozEditModeLib:Register(frame, settingsTable, onEnter, onExit)
+function FerrozEditModeLib:Register(frame, settingsTable)
     frame.settingsTable = settingsTable
     frame.isEditing = false
     frame.isDirty = false
     settingsTable.layouts = settingsTable.layouts or {}
+    Mixin(frame, EditModeSystemMixin)
+    frame.systemIndex = Enum.EditModeSystem.UnitFrame 
+    if(frame.systemName == nil) then
+        frame.systemName = frame:GetName() or frame:GetDebugName()
+    end
+    log(frame.systemName)
 
     RunNextFrame(function()
         self:ApplyLayout(frame)
@@ -202,7 +211,10 @@ function FerrozEditModeLib:Register(frame, settingsTable, onEnter, onExit)
         frame:SetMovable(true)
         frame:RegisterForDrag("LeftButton")
         SnapshotRevertPosition()
-        if onEnter then onEnter(frame) end
+        if frame.EditModeStartMock then frame:EditModeStartMock()
+        else
+            log("start else" .. frame.getName())
+        end
     end)
 
     EventRegistry:RegisterCallback("EditMode.Exit", function()
@@ -212,8 +224,10 @@ function FerrozEditModeLib:Register(frame, settingsTable, onEnter, onExit)
         frame.isEditing = false
         frame:EnableMouse(false)
         frame:SetMovable(false)
-        
-        if onExit then onExit(frame) end
+        if frame.EditModeStopMock then frame:EditModeStopMock()
+        else
+            log("stop else" .. frame.getName())
+        end
     end)
 
     frame.SaveCurrentPosition = SaveCurrentPosition
