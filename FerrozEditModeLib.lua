@@ -1,9 +1,27 @@
-FerrozEditModeLib = {}
-FerrozEditModeLib.registeredFrames = {}
-FerrozEditModeLib.DebugMode = false
+local addonName = ... 
+local versionString = C_AddOns.GetAddOnMetadata(addonName, "Version") or "1.0.0"
+local major, minor, patch = string.match(versionString, "(%d+)%.(%d+)%.(%d+)")
+local LIB_VERSION = (tonumber(major) * 10000) + (tonumber(minor) * 100) + tonumber(patch)
+local LIB_NAME = "FerrozEditModeLib-1.0"
+local lib = LibStub:NewLibrary(LIB_NAME, LIB_VERSION)
+if not lib then return end --Guard, already loaded
 
-function FerrozEditModeLib:Log(...)
-    if not self.DebugMode then return end
+lib.registeredFrames = {}
+lib.selectionOverlay = nil
+lib.DEBUG_MODE = false
+lib.DEFAULT_PADDING = 4 -- Constant
+
+--constants
+local STRATA_TABLE = {
+    ["BACKGROUND"] = "LOW",
+    ["LOW"] = "MEDIUM",
+    ["MEDIUM"] = "HIGH",
+    ["HIGH"] = "DIALOG",
+    ["DIALOG"] = "FULLSCREEN",
+}
+
+function lib:Log(...)
+    if not self.DEBUG_MODE then return end
 
     local n = select("#", ...)
     if n == 0 then return end
@@ -25,13 +43,12 @@ function FerrozEditModeLib:Log(...)
 
     print("|cff00ff00[FerrozLib]|r " .. msg)
 end
-local log=FerrozEditModeLib.Log
 
-function FerrozEditModeLib:AnnounceInit()
+function lib:AnnounceInit()
     --todo
 end
 
-function FerrozEditModeLib:SetDirty()
+function lib:SetDirty()
     if not EditModeManagerFrame or EditModeManagerFrame.layoutApplyInProgress then return end
 
     -- The brute force flag
@@ -40,7 +57,7 @@ function FerrozEditModeLib:SetDirty()
     EditModeManagerFrame.RevertAllChangesButton:SetEnabled(true)
 end
 
-function FerrozEditModeLib:GetCurrentLayoutName()
+function lib:GetCurrentLayoutName()
     if not C_EditMode or type(C_EditMode.GetLayouts) ~= "function" then 
         return "Default" 
     end
@@ -67,10 +84,10 @@ function FerrozEditModeLib:GetCurrentLayoutName()
     return "Default"
 end 
 
-function FerrozEditModeLib:ApplyLayout(frame)
+function lib:ApplyLayout(frame)
     frame.isDirty = false
     local layoutName = self:GetCurrentLayoutName()
-    FerrozEditModeLib:Log("FerrozEditModeLib:ApplyLayout: " .. (frame:GetName() or "Unknown") .. " - " .. layoutName)
+    lib:Log("lib:ApplyLayout: " .. (frame:GetName() or "Unknown") .. " - " .. layoutName)
     local settingsTable = frame.settingsTable
     local s = settingsTable.layouts and settingsTable.layouts[layoutName]
 
@@ -86,7 +103,7 @@ function FerrozEditModeLib:ApplyLayout(frame)
     end
 end
 
-function FerrozEditModeLib:ResetPosition(frame)
+function lib:ResetPosition(frame)
     local layoutName = self:GetCurrentLayoutName()
     local settingsTable = frame.settingsTable
     if settingsTable.layouts then
@@ -97,8 +114,41 @@ function FerrozEditModeLib:ResetPosition(frame)
     frame:SetScale(1.0)
 end
 
+--Selection
+-- Add this helper to your lib
+function lib:GetSelectionOverlay()
+    if not self.selectionOverlay then
+        local f = CreateFrame("Frame", "FerrozSelectionOverlay", UIParent, "BackdropTemplate")
+        f:SetFrameStrata("DIALOG")
+        f:SetBackdrop({
+            bgFile = "Interface\\Buttons\\WHITE8X8",
+            edgeFile = "Interface\\Buttons\\WHITE8X8",
+            edgeSize = 2,
+        })
+        f:SetBackdropBorderColor(0.973, 0.851, 0.263, .8)
+        f:SetBackdropColor(0.5, 0.4, 0, 0.3)
+        f:SetMouseClickEnabled(false)
+        f:SetPropagateMouseClicks(true)
+        self.selectionOverlay = f
+    end
+    return self.selectionOverlay
+end
+
+function lib:AttachOverlay(targetFrame)
+    local overlay = self:GetSelectionOverlay()
+    overlay:SetParent(targetFrame)
+    local currentStrata = targetFrame:GetFrameStrata()
+    overlay:SetFrameStrata(STRATA_TABLE[currentStrata] or "TOOLTIP")
+    overlay:SetFrameLevel(100)
+    overlay:ClearAllPoints()
+    local pad = self.DEFAULT_PADDING
+    overlay:SetPoint("TOPLEFT", targetFrame, "TOPLEFT", -pad, pad)
+    overlay:SetPoint("BOTTOMRIGHT", targetFrame, "BOTTOMRIGHT", pad, -pad)
+    overlay:Show()
+end
+
 -- The Registration Core
-function FerrozEditModeLib:Register(frame, settingsTable)
+function lib:Register(frame, settingsTable)
     frame.settingsTable = settingsTable
     frame.isEditing = false
     frame.isDirty = false
@@ -108,15 +158,15 @@ function FerrozEditModeLib:Register(frame, settingsTable)
     if(frame.systemName == nil) then
         frame.systemName = frame:GetName() or frame:GetDebugName()
     end
-    log(frame.systemName)
+    lib:Log(frame.systemName)
 
     RunNextFrame(function()
-        self:ApplyLayout(frame)
+        lib:ApplyLayout(frame)
     end)
 
     local function SnapshotRevertPosition()
         local point, relFrame, rel, x, y = frame:GetPoint()
-        FerrozEditModeLib:Log("Snapshotting revert position " .. (frame:GetName() or "Unknown") .. " - " .. FerrozEditModeLib:GetCurrentLayoutName())
+        lib:Log("Snapshotting revert position " .. (frame:GetName() or "Unknown") .. " - " .. lib:GetCurrentLayoutName())
         frame.revertPositionState = {
             point = point,
             relativeFrame = relFrame,
@@ -129,8 +179,8 @@ function FerrozEditModeLib:Register(frame, settingsTable)
 
     local function SnapshotCurrentPosition()
         local point, relFrame, rel, x, y = frame:GetPoint()
-        local lName = FerrozEditModeLib:GetCurrentLayoutName()
-        FerrozEditModeLib:Log(string.format("Snapshotting current position (pre) %s - %s: X=%.2f, Y=%.2f", lName, (frame:GetName() or "Unknown"), x, y))
+        local lName = lib:GetCurrentLayoutName()
+        lib:Log(string.format("Snapshotting current position (pre) %s - %s: X=%.2f, Y=%.2f", lName, (frame:GetName() or "Unknown"), x, y))
         frame.currentPositionState = {
             layoutName = lName,
             point = point,
@@ -140,7 +190,7 @@ function FerrozEditModeLib:Register(frame, settingsTable)
             yOfs = y,
             scale = frame:GetScale()
         }
-        FerrozEditModeLib:Log(string.format("Snapshotting current position (post) %s - %s: X=%.2f, Y=%.2f", lName, (frame:GetName() or "Unknown"), frame.currentPositionState.xOfs, frame.currentPositionState.yOfs))
+        lib:Log(string.format("Snapshotting current position (post) %s - %s: X=%.2f, Y=%.2f", lName, (frame:GetName() or "Unknown"), frame.currentPositionState.xOfs, frame.currentPositionState.yOfs))
     end
 
     -- Internal function to save current state to the active layout
@@ -149,9 +199,10 @@ function FerrozEditModeLib:Register(frame, settingsTable)
         local cp = frame.currentPositionState
         if not cp then return end -- Nothing new to save
         
-        local layoutName = (cp and cp.layoutName) or FerrozEditModeLib:GetCurrentLayoutName()
-        local relativeFrameName = (cp.relativeFrame and cp.relativeFrame.GetName and cp.relativeFrame:GetName()) or "UIParent"
-        FerrozEditModeLib:Log(string.format("Saving %s - %s: X=%.2f, Y=%.2f", layoutName, (frame:GetName() or "Unknown"), cp.xOfs, cp.yOfs))
+        local layoutName = (cp and cp.layoutName) or lib:GetCurrentLayoutName()
+        local relFrame = cp.relativeFrame
+        local relativeFrameName = (type(relFrame) == "table" and relFrame.GetName) and relFrame:GetName() or (type(relFrame) == "string" and relFrame) or "UIParent"
+        lib:Log(string.format("Saving %s - %s: X=%.2f, Y=%.2f", layoutName, (frame:GetName() or "Unknown"), cp.xOfs, cp.yOfs))
         
         frame.settingsTable.layouts[layoutName] = {
             point = cp.point,
@@ -186,7 +237,7 @@ function FerrozEditModeLib:Register(frame, settingsTable)
                 self:SetPoint("CENTER", UIParent, "BOTTOMLEFT", (centerX * oldScale) / newScale, (centerY * oldScale) / newScale)
             end
             self.isDirty = true
-            FerrozEditModeLib:SetDirty()
+            lib:SetDirty()
             SnapshotCurrentPosition()
         end
     end)
@@ -198,14 +249,19 @@ function FerrozEditModeLib:Register(frame, settingsTable)
     frame:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
         self.isDirty = true
-        FerrozEditModeLib:SetDirty()
+        lib:SetDirty()
         SnapshotCurrentPosition()
+    end)
+    frame:HookScript("OnMouseDown", function(self, button)
+        if self.isEditing and button == "LeftButton" then
+            lib:AttachOverlay(self)
+        end
     end)
 
     -- 3. Blizzard Handshake (EventRegistry)
     EventRegistry:RegisterCallback("EditMode.Enter", function()
         if InCombatLockdown() then return end
-        FerrozEditModeLib:ApplyLayout(frame)
+        lib:ApplyLayout(frame)
         frame.isEditing = true
         frame:EnableMouse(true)
         frame:SetMovable(true)
@@ -213,7 +269,7 @@ function FerrozEditModeLib:Register(frame, settingsTable)
         SnapshotRevertPosition()
         if frame.EditModeStartMock then frame:EditModeStartMock()
         else
-            log("start else" .. frame.getName())
+            lib:Log("start else" .. frame:GetName())
         end
     end)
 
@@ -226,7 +282,12 @@ function FerrozEditModeLib:Register(frame, settingsTable)
         frame:SetMovable(false)
         if frame.EditModeStopMock then frame:EditModeStopMock()
         else
-            log("stop else" .. frame.getName())
+            lib:Log("stop else" .. frame:GetName())
+        end
+        if lib.selectionOverlay then
+            lib.selectionOverlay:Hide()
+            lib.selectionOverlay:SetParent(UIParent)
+            lib.selectionOverlay:SetFrameStrata("DIALOG")
         end
     end)
 
@@ -236,36 +297,36 @@ function FerrozEditModeLib:Register(frame, settingsTable)
     frame.SnapshotCurrentPosition = SnapshotCurrentPosition
 
     -- Add to the library's internal tracker
-    table.insert(FerrozEditModeLib.registeredFrames, frame)
+    table.insert(lib.registeredFrames, frame)
 
 end
 
-if not FerrozEditModeLib.HooksInitialized then
+if not lib.HooksInitialized then
     hooksecurefunc(EditModeManagerFrame, "SelectLayout", function(self, layoutInfo)
         RunNextFrame(function()
-            FerrozEditModeLib:Log("hooksecurefunc(EditModeManagerFrame, OnLayoutSelected")
-            for _, f in ipairs(FerrozEditModeLib.registeredFrames or {}) do
+            lib:Log("hooksecurefunc(EditModeManagerFrame, OnLayoutSelected")
+            for _, f in ipairs(lib.registeredFrames or {}) do
                 -- 1. Move frame to its position in the NEW layout
                 if f.settingsTable then
-                    FerrozEditModeLib:ApplyLayout(f)
+                    lib:ApplyLayout(f)
                 end
             end
         end)
     end)
 
     hooksecurefunc(EditModeManagerFrame, "SaveLayouts", function()
-        FerrozEditModeLib:Log("Manager SaveLayouts detected!")
-        for _, f in ipairs(FerrozEditModeLib.registeredFrames) do
+        lib:Log("Manager SaveLayouts detected!")
+        for _, f in ipairs(lib.registeredFrames) do
             f:SaveCurrentPosition()      -- Save to its specific table
         end
     end)
 
     -- This catches Golden Button AND the "Discard" button on the Popup
     hooksecurefunc(EditModeManagerFrame, "RevertAllChanges", function()
-        FerrozEditModeLib:Log("Revert All changes")
+        lib:Log("Revert All changes")
         if EditModeManagerFrame.isSaving then return end 
     
-        for _, f in ipairs(FerrozEditModeLib.registeredFrames or {}) do
+        for _, f in ipairs(lib.registeredFrames or {}) do
             if f.revertPositionState and f.RevertPosition then
                 f:RevertPosition()
             end
@@ -274,8 +335,8 @@ if not FerrozEditModeLib.HooksInitialized then
 
     if EditModeManagerFrame.RevertAllChangesButton then
         EditModeManagerFrame.RevertAllChangesButton:HookScript("OnClick", function()
-            FerrozEditModeLib:Log("Physical Revert Button Clicked")
-            for _, f in ipairs(FerrozEditModeLib.registeredFrames or {}) do
+            lib:Log("Physical Revert Button Clicked")
+            for _, f in ipairs(lib.registeredFrames or {}) do
                 if f.revertPositionState and f.RevertPosition then
                     f:RevertPosition()
                 end
@@ -283,5 +344,5 @@ if not FerrozEditModeLib.HooksInitialized then
         end)
     end
 
-    FerrozEditModeLib.HooksInitialized = true
+    lib.HooksInitialized = true
 end
