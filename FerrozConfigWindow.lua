@@ -147,7 +147,8 @@ function lib:ShowConfigForFrame(targetFrame)
         if config.yControl then config.yControl:SetText(lib:RoundCoordinates(ws.yOfs)) end
         if config.sourceFrame then config.sourceFrame:SetText(targetFrame:GetName() or "Unnamed") end
         if config.sourcePoint then config.sourcePoint:SetText(ws.point or "CENTER") end
-        if config.relativeFrame then config.relativeFrame:SetText(ws.relativeTo or "UIParent") end
+        local _unused_relFrame, relFrameName = lib:ResolveFrame(ws.relativeFrame)
+        if config.relativeFrame then config.relativeFrame:SetText(relFrameName) end
         if config.relativePoint then config.relativePoint:SetText(ws.relativePoint or "CENTER") end
     end
     --todo targetFrameFlexContainer if there is anything there 
@@ -265,7 +266,8 @@ function lib:RefreshConfigUI(frame)
             f.sourcePoint:SetText(ws.point or "CENTER")
         end
 
-        f.relativeFrame:SetText(ws.relativeTo or "UIParent")
+        local _, relName = lib:ResolveFrame(ws.relativeFrame)
+        f.relativeFrame:SetText(relName)
         if f.relativePoint then 
             f.relativePoint:SetText(ws.relativePoint or "CENTER")
         end
@@ -350,9 +352,6 @@ function lib:CreateRelativeFrameAnchorControls(container)
     local relToBox = CreateFrame("EditBox", nil, wrapper, "InputBoxTemplate")
     relToBox:SetSize(lib.CONFIG_EDIT_BOX_WIDTH, lib.CONFIG_EDIT_BOX_HEIGHT)
     relToBox:SetAutoFocus(false)
-    relToBox:SetEnabled(false)
-    relToBox:SetFontObject("GameFontDisable")
-    relToBox:SetScript("OnEditFocusGained", function(self) self:ClearFocus() end)
     
     -- Control 2: Relative Point Dropdown
     local relPointDrop = lib:CreateAnchorDropdown(wrapper, "relativePoint")
@@ -367,7 +366,8 @@ function lib:CreateRelativeFrameAnchorControls(container)
     relToBox:SetScript("OnEnterPressed", function(self)
         local config = lib:GetOrCreateConfigFrame()
         if config.target and config.target.workingState then
-            config.target.workingState.relativeTo = self:GetText()
+            relFrame,_unused_relFrameName = lib:ResolveFrame(self:GetText())
+            config.target.workingState.relativeFrame = relFrame
         end
         self:ClearFocus()
     end)

@@ -58,6 +58,13 @@ function lib:AnnounceInit()
     --todo
 end
 
+function lib:ResolveFrame(frameOrName)
+    local frame = (type(frameOrName) == "string" and _G[frameOrName]) or frameOrName or UIParent
+    local name = (type(frame) == "table" and frame.GetName) and frame:GetName() or tostring(frameOrName or "UIParent")
+    
+    return frame, name
+end
+
 function lib:SetDirty(frame)
     frame.isDirty = true
     if not EditModeManagerFrame or EditModeManagerFrame.layoutApplyInProgress then return end
@@ -104,7 +111,7 @@ function lib:ApplyLayout(frame)
     local s = settingsTable.layouts and settingsTable.layouts[layoutName]
 
     if s then
-        local relativeTo = (s.relativeFrame and _G[s.relativeFrame]) or UIParent
+        local relativeTo, _unused_relativeToName = lib:ResolveFrame(s.relativeFrame)
         frame:ClearAllPoints()
         frame:SetPoint(s.point, relativeTo, s.relativePoint, s.xOfs, s.yOfs)
         frame:SetScale(s.scale or 1.0)
@@ -147,7 +154,7 @@ function lib:ApplyState(frame, state)
     if state.point then
         local xOfs = tonumber(state.xOfs) or 0
         local yOfs = tonumber(state.yOfs) or 0
-        local relFrame = type(state.relativeFrame) == "string" and _G[state.relativeFrame] or state.relativeFrame or UIParent
+        local relFrame, _unused_relFrameName = lib:ResolveFrame(state.relativeFrame)
         local relPoint = state.relativePoint or state.point
         local curPoint, curRel, curRelPoint, curX, curY = frame:GetPoint()
         local hasMoved = (curPoint ~= state.point) or 
@@ -301,8 +308,7 @@ function lib:CommitWorkingState(frame)
     if not cp then return end -- Nothing new to save
     
     local layoutName = (cp and cp.layoutName) or lib:GetCurrentLayoutName()
-    local relFrame = cp.relativeFrame
-    local relativeFrameName = (type(relFrame) == "table" and relFrame.GetName) and relFrame:GetName() or (type(relFrame) == "string" and relFrame) or "UIParent"
+    local _unused_relFrame,relativeFrameName = lib:ResolveFrame(cp.relativeFrame)
     lib:Log(string.format("Saving %s - %s: X=%.2f, Y=%.2f", layoutName, (frame:GetName() or "Unknown"), cp.xOfs, cp.yOfs))
     
     frame.settingsTable.layouts[layoutName] = {
@@ -352,10 +358,9 @@ end
 function lib:ReanchorFrame(frame)
     local state = frame.workingState
     if not state or not state.point then return end
-
-    local relFrame = (type(state.relativeFrame) == "string" and _G[state.relativeFrame]) 
-                     or state.relativeFrame or frame:GetParent() or UIParent
     
+    local relFrame, _unused_relFrameName = lib:ResolveFrame(state.relativeFrame)
+
     -- 1. Where on the SCREEN is the point we are attaching TO?
     local targetX, targetY = GetAnchorXY(relFrame, state.relativePoint or state.point)
     
@@ -380,7 +385,6 @@ function lib:ReanchorFrame(frame)
     )
 end
 
---frame:SetPoint(state.point, state.relativeFrame, state.relativePoint, x, y)
 -- The Registration Core
 function lib:Register(frame, settingsTable, defaultState)
     frame.settingsTable = settingsTable
