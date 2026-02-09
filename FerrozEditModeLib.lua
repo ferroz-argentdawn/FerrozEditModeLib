@@ -1,25 +1,35 @@
 local addonName = ... 
 local versionString = C_AddOns.GetAddOnMetadata(addonName, "Version") or "1.0.0"
-local major, minor, patch = string.match(versionString, "(%d+)%.(%d+)%.(%d+)")
+local major, minor, patch = string.match(versionString, "(%d+)%.(%d+)%.(%d+)") or "1", "0", "0"
 local LIB_VERSION = (tonumber(major) * 10000) + (tonumber(minor) * 100) + tonumber(patch)
 local LIB_NAME = "FerrozEditModeLib-1.0"
 local lib = LibStub:NewLibrary(LIB_NAME, LIB_VERSION)
 if not lib then return end --Guard, already loaded
 
+--library variables
 lib.registeredFrames = {}
 lib.selectionOverlay = nil
 lib.DEBUG_MODE = false
-lib.DEFAULT_PADDING = 4 -- Constant
 
---constants
-local STRATA_TABLE = {
+--library constants
+lib.STRATA_TABLE = {
     ["BACKGROUND"] = "LOW",
     ["LOW"] = "MEDIUM",
     ["MEDIUM"] = "HIGH",
     ["HIGH"] = "DIALOG",
     ["DIALOG"] = "FULLSCREEN",
 }
-
+lib.FERROZ_COLOR = CreateColorFromHexString("ff8FB8DD")
+lib.CONTAINER_PADDING = 2
+lib.MIN_HEIGHT = 10
+lib.MIN_WIDTH = 10
+lib.MAX_WIDTH = 1200
+lib.MAX_HEIGHT = 600
+lib.MIN_SCALE = 0.4
+lib.MAX_SCALE = 2.5
+lib.SCALE_STEP = 0.05
+lib.SIZE_STEP = 1
+--debug log function
 function lib:Log(...)
     if not self.DEBUG_MODE then return end
 
@@ -48,13 +58,15 @@ function lib:AnnounceInit()
     --todo
 end
 
-function lib:SetDirty()
+function lib:SetDirty(frame)
+    frame.isDirty = true
     if not EditModeManagerFrame or EditModeManagerFrame.layoutApplyInProgress then return end
 
     -- The brute force flag
     EditModeManagerFrame.hasActiveChanges = true
     EditModeManagerFrame.SaveChangesButton:SetEnabled(true)
     EditModeManagerFrame.RevertAllChangesButton:SetEnabled(true)
+    lib:RefreshConfigUI(frame)
 end
 
 function lib:GetCurrentLayoutName()
@@ -96,26 +108,95 @@ function lib:ApplyLayout(frame)
         frame:ClearAllPoints()
         frame:SetPoint(s.point, relativeTo, s.relativePoint, s.xOfs, s.yOfs)
         frame:SetScale(s.scale or 1.0)
+        if s.height then frame:SetHeight(s.height) end
+        if s.width then frame:SetWidth(s.width) end
     else
         frame:ClearAllPoints()
         frame:SetPoint("CENTER", UIParent, "CENTER")
         frame:SetScale(1.0)
+        --frame:SetDefaultHeightAndWidth()
     end
 end
 
-function lib:ResetPosition(frame)
-    local layoutName = self:GetCurrentLayoutName()
-    local settingsTable = frame.settingsTable
-    if settingsTable.layouts then
-        settingsTable.layouts[layoutName] = nil
+function lib:CreateObservableState(initialData, onChange)
+    local proxy = { _values = initialData or {} }
+    setmetatable(proxy, {
+        __index = function(t, k) return t._values[k] end,
+        __newindex = function(t, k, v)
+            if t._values[k] ~= v then
+                t._values[k] = v
+                if onChange then onChange(k, v) end
+            end
+        end,
+        __pairs = function(t) return pairs(t._values) end
+    })
+    return proxy
+end
+
+function lib:ApplyState(frame, state)
+    if not frame or not state then return false end
+    local changed = false
+    local newScale = tonumber(state.scale)
+    if newScale then
+        newScale = math.max(lib.MIN_SCALE, math.min(lib.MAX_SCALE, newScale))
+        if math.abs(frame:GetScale() - newScale) > 0.001 then
+            frame:SetScale(state.scale)
+            changed = true
+        end
     end
-    frame:ClearAllPoints()
-    frame:SetPoint("CENTER", UIParent, "CENTER")
-    frame:SetScale(1.0)
+    if state.point then
+        local xOfs = tonumber(state.xOfs) or 0
+        local yOfs = tonumber(state.yOfs) or 0
+        local relFrame = type(state.relativeFrame) == "string" and _G[state.relativeFrame] or state.relativeFrame or UIParent
+        local relPoint = state.relativePoint or state.point
+        local curPoint, curRel, curRelPoint, curX, curY = frame:GetPoint()
+        local hasMoved = (curPoint ~= state.point) or 
+                        (curRel ~= relFrame) or 
+                        (curRelPoint ~= relPoint) or 
+                        (math.abs((curX or 0) - xOfs) > 0.1) or 
+                        (math.abs((curY or 0) - yOfs) > 0.1)
+        if hasMoved then
+            frame:ClearAllPoints()
+            frame:SetPoint(state.point, relFrame, relPoint, xOfs, yOfs)
+            changed = true
+        end
+    end
+    local targetW = tonumber(state.width)
+    local targetH = tonumber(state.height)
+
+    if targetW and math.abs(frame:GetWidth() - targetW) > 0.1 then
+        frame:SetWidth(targetW)
+        changed = true
+    end
+
+    if targetH and math.abs(frame:GetHeight() - targetH) > 0.1 then
+        frame:SetHeight(targetH)
+        changed = true
+    end
+    if frame.UpdateFromState then
+        changed = changed or frame:UpdateFromState(state)
+    end
+    return changed
+end
+
+function lib:ResetPosition(frame) -- fallbackmethod until refactor is available 
+    lib:ResetState(frame)
+end
+
+function lib:ResetState(frame)
+    if not frame then return end
+    --clear DB
+    local layoutName = self:GetCurrentLayoutName()
+    if frame and frame.settingsTable and frame.settingsTable.layouts and layoutName then
+        frame.settingsTable.layouts[layoutName] = nil
+    end
+
+    lib:ApplyState(frame, frame.defaultState)
+
+    lib:SnapshotWorkingState(frame)
 end
 
 --Selection
--- Add this helper to your lib
 function lib:GetSelectionOverlay()
     if not self.selectionOverlay then
         local f = CreateFrame("Frame", "FerrozSelectionOverlay", UIParent, "BackdropTemplate")
@@ -135,23 +216,197 @@ function lib:GetSelectionOverlay()
 end
 
 function lib:AttachOverlay(targetFrame)
+    EditModeManagerFrame:SelectSystem(nil)
+    if EditModeSystemSettingsDialog then
+        EditModeSystemSettingsDialog:Hide()
+    end
     local overlay = self:GetSelectionOverlay()
     overlay:SetParent(targetFrame)
     local currentStrata = targetFrame:GetFrameStrata()
-    overlay:SetFrameStrata(STRATA_TABLE[currentStrata] or "TOOLTIP")
+    overlay:SetFrameStrata(lib.STRATA_TABLE[currentStrata] or "TOOLTIP")
     overlay:SetFrameLevel(100)
     overlay:ClearAllPoints()
-    local pad = self.DEFAULT_PADDING
-    overlay:SetPoint("TOPLEFT", targetFrame, "TOPLEFT", -pad, pad)
-    overlay:SetPoint("BOTTOMRIGHT", targetFrame, "BOTTOMRIGHT", pad, -pad)
+    
+    overlay:SetPoint("TOPLEFT", targetFrame, "TOPLEFT", -lib.CONTAINER_PADDING, lib.CONTAINER_PADDING)
+    overlay:SetPoint("BOTTOMRIGHT", targetFrame, "BOTTOMRIGHT", lib.CONTAINER_PADDING, -lib.CONTAINER_PADDING)
     overlay:Show()
+    lib:SnapshotWorkingState(targetFrame)
+    self:ShowConfigForFrame(targetFrame)
 end
 
+function lib:ClearAttachOverlay()
+    local overlay = self:GetSelectionOverlay()
+    overlay:Hide()
+    overlay:SetParent(UIParent)
+    overlay:SetFrameStrata("DIALOG")
+    self:ClearConfigMenu()
+end
+
+--previously local functions
+function lib:SnapshotBaseState(frame)
+    local point, relFrame, rel, x, y = frame:GetPoint()
+    lib:Log("Snapshotting revert position " .. (frame:GetName() or "Unknown") .. " - " .. lib:GetCurrentLayoutName())
+    frame.baseState = {
+        point = point,
+        relativeFrame = relFrame,
+        relativePoint = rel,
+        xOfs = x,
+        yOfs = y,
+        scale = frame:GetScale(),
+        height = frame:GetHeight(),
+        width = frame:GetWidth(),
+    }
+end
+
+function lib:SnapshotWorkingState(frame)
+    local point, relFrame, rel, x, y = frame:GetPoint()
+    local lName = lib:GetCurrentLayoutName()
+    local h = frame:GetHeight()
+    local w = frame:GetWidth()
+    local currentState = {
+        layoutName = lName,
+        point = point,
+        relativeFrame = relFrame,
+        relativePoint = rel,
+        xOfs = x,
+        yOfs = y,
+        scale = frame:GetScale(),
+        height = (h and h > lib.MIN_HEIGHT) and h or nil,
+        width = (w and w > lib.MIN_WIDTH) and w or nil,
+    }
+    if not frame.workingState then
+        frame.workingState = lib:CreateObservableState(currentState, function(key, value)
+            if frame._isInternalSynchronize then return end
+            local isDirty = lib:ApplyState(frame, frame.workingState)
+            if isDirty then
+                lib:SetDirty(frame)
+            end
+            lib:RefreshConfigUI(frame)
+        end)
+    else
+        frame._isInternalSynchronize = true
+        for k, v in pairs(currentState) do
+            -- We update the proxy directly so it stays in sync
+            frame.workingState[k] = v
+        end
+        frame._isInternalSynchronize = false
+    end
+    lib:RefreshConfigUI(frame)
+end
+
+-- Internal function to save current state to the active layout
+function lib:CommitWorkingState(frame)
+    if frame and not frame.isDirty then return end
+    local cp = frame.workingState
+    if not cp then return end -- Nothing new to save
+    
+    local layoutName = (cp and cp.layoutName) or lib:GetCurrentLayoutName()
+    local relFrame = cp.relativeFrame
+    local relativeFrameName = (type(relFrame) == "table" and relFrame.GetName) and relFrame:GetName() or (type(relFrame) == "string" and relFrame) or "UIParent"
+    lib:Log(string.format("Saving %s - %s: X=%.2f, Y=%.2f", layoutName, (frame:GetName() or "Unknown"), cp.xOfs, cp.yOfs))
+    
+    frame.settingsTable.layouts[layoutName] = {
+        point = cp.point,
+        relativePoint = cp.relativePoint,
+        relativeFrame = relativeFrameName,
+        xOfs = cp.xOfs,
+        yOfs = cp.yOfs,
+        scale = cp.scale,
+        height = cp.height,
+        width = cp.width,
+    }
+    frame.isDirty = false
+    lib:SnapshotBaseState(frame)
+    lib:RefreshConfigUI(frame)
+end
+
+function lib:RevertState(frame)
+    if not frame or not frame.baseState then return end
+    if frame and not frame.isDirty then return end
+    frame._isInternalSynchronize = true
+    lib:ApplyState(frame,frame.baseState)
+    lib:SnapshotWorkingState(frame)
+    frame._isInternalSynchronize = false
+    frame.isDirty = false
+    lib:RefreshConfigUI(frame)
+end
+
+local function GetAnchorXY(frame, anchor)
+    local left, bottom, width, height = frame:GetRect()
+    if not left then return 0, 0 end
+    
+    local x, y
+    -- Handle Horizontal
+    if anchor:find("LEFT") then x = left
+    elseif anchor:find("RIGHT") then x = left + width
+    else x = left + (width / 2) end -- CENTER
+    
+    -- Handle Vertical
+    if anchor:find("TOP") then y = bottom + height
+    elseif anchor:find("BOTTOM") then y = bottom
+    else y = bottom + (height / 2) end -- CENTER
+    
+    return x, y
+end
+
+function lib:ReanchorFrame(frame)
+    local state = frame.workingState
+    if not state or not state.point then return end
+
+    local relFrame = (type(state.relativeFrame) == "string" and _G[state.relativeFrame]) 
+                     or state.relativeFrame or frame:GetParent() or UIParent
+    
+    -- 1. Where on the SCREEN is the point we are attaching TO?
+    local targetX, targetY = GetAnchorXY(relFrame, state.relativePoint or state.point)
+    
+    -- 2. Where on the SCREEN is the point on our frame we are attaching FROM?
+    local sourceX, sourceY = GetAnchorXY(frame, state.point)
+    
+    -- 3. The difference is our offset
+    local xOfs = sourceX - targetX
+    local yOfs = sourceY - targetY
+    
+    -- 4. Scale Correction
+    -- WoW's SetPoint offsets are relative to the frame's own scale.
+    local frameScale = frame:GetScale() or 1
+
+    frame:ClearAllPoints()
+    frame:SetPoint(
+        state.point, 
+        relFrame, 
+        state.relativePoint or state.point, 
+        xOfs , 
+        yOfs
+    )
+end
+
+--frame:SetPoint(state.point, state.relativeFrame, state.relativePoint, x, y)
 -- The Registration Core
-function lib:Register(frame, settingsTable)
+function lib:Register(frame, settingsTable, defaultState)
     frame.settingsTable = settingsTable
     frame.isEditing = false
     frame.isDirty = false
+    --create default state
+    local ds = {
+        point = "CENTER",
+        relativeFrame = UIParent,
+        relativePoint = "CENTER",
+        xOfs = 0,
+        yOfs = 0,
+        scale = frame:GetScale() or 1.0,
+        height = frame:GetHeight() or lib.MIN_HEIGHT,
+        width = frame:GetWidth() or lib.MIN_WIDTH,
+    }
+    if type(defaultState) == "table" then
+        for k, v in pairs(defaultState) do
+            ds[k] = v
+        end
+    end
+    --reinforce minimums
+    ds.height = math.max(lib.MIN_HEIGHT, ds.height)
+    ds.width = math.max(lib.MIN_WIDTH, ds.width)
+    ds.scale = math.max(0.4, ds.scale) -- Don't let scale go to 0!    
+    frame.defaultState = ds
     settingsTable.layouts = settingsTable.layouts or {}
     Mixin(frame, EditModeSystemMixin)
     frame.systemIndex = Enum.EditModeSystem.UnitFrame 
@@ -164,67 +419,6 @@ function lib:Register(frame, settingsTable)
         lib:ApplyLayout(frame)
     end)
 
-    local function SnapshotRevertPosition()
-        local point, relFrame, rel, x, y = frame:GetPoint()
-        lib:Log("Snapshotting revert position " .. (frame:GetName() or "Unknown") .. " - " .. lib:GetCurrentLayoutName())
-        frame.revertPositionState = {
-            point = point,
-            relativeFrame = relFrame,
-            relativePoint = rel,
-            xOfs = x,
-            yOfs = y,
-            scale = frame:GetScale()
-        }
-    end
-
-    local function SnapshotCurrentPosition()
-        local point, relFrame, rel, x, y = frame:GetPoint()
-        local lName = lib:GetCurrentLayoutName()
-        lib:Log(string.format("Snapshotting current position (pre) %s - %s: X=%.2f, Y=%.2f", lName, (frame:GetName() or "Unknown"), x, y))
-        frame.currentPositionState = {
-            layoutName = lName,
-            point = point,
-            relativeFrame = relFrame,
-            relativePoint = rel,
-            xOfs = x,
-            yOfs = y,
-            scale = frame:GetScale()
-        }
-        lib:Log(string.format("Snapshotting current position (post) %s - %s: X=%.2f, Y=%.2f", lName, (frame:GetName() or "Unknown"), frame.currentPositionState.xOfs, frame.currentPositionState.yOfs))
-    end
-
-    -- Internal function to save current state to the active layout
-    local function SaveCurrentPosition()
-        if frame and not frame.isDirty then return end
-        local cp = frame.currentPositionState
-        if not cp then return end -- Nothing new to save
-        
-        local layoutName = (cp and cp.layoutName) or lib:GetCurrentLayoutName()
-        local relFrame = cp.relativeFrame
-        local relativeFrameName = (type(relFrame) == "table" and relFrame.GetName) and relFrame:GetName() or (type(relFrame) == "string" and relFrame) or "UIParent"
-        lib:Log(string.format("Saving %s - %s: X=%.2f, Y=%.2f", layoutName, (frame:GetName() or "Unknown"), cp.xOfs, cp.yOfs))
-        
-        frame.settingsTable.layouts[layoutName] = {
-            point = cp.point,
-            relativePoint = cp.relativePoint,
-            relativeFrame = relativeFrameName,
-            xOfs = cp.xOfs,
-            yOfs = cp.yOfs,
-            scale = cp.scale
-        }
-        SnapshotRevertPosition()
-    end
-
-    local function RevertPosition()
-        if frame and not frame.isDirty then return end
-        local op = frame.revertPositionState
-        if(op) then
-            frame:ClearAllPoints() -- Always clear before re-anchoring
-            frame:SetPoint(op.point, op.relativeFrame, op.relativePoint, op.xOfs, op.yOfs)
-            frame:SetScale(op.scale)
-        end
-    end
-
     -- 1. Scaling Logic
     frame:SetScript("OnMouseWheel", function(self, delta)
         if self.isEditing then
@@ -236,21 +430,20 @@ function lib:Register(frame, settingsTable)
                 self:ClearAllPoints()
                 self:SetPoint("CENTER", UIParent, "BOTTOMLEFT", (centerX * oldScale) / newScale, (centerY * oldScale) / newScale)
             end
-            self.isDirty = true
-            lib:SetDirty()
-            SnapshotCurrentPosition()
+            lib:SetDirty(self)
+            lib:SnapshotWorkingState(self)
         end
     end)
 
     -- 2. Drag Logic
-    frame:SetScript("OnDragStart", function(self) 
-        if self.isEditing then self:StartMoving() end 
+    frame:SetScript("OnDragStart", function(self)
+        if self.isEditing then self:StartMoving() end
     end)
     frame:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
-        self.isDirty = true
-        lib:SetDirty()
-        SnapshotCurrentPosition()
+        lib:ReanchorFrame(frame)
+        lib:SetDirty(self)
+        lib:SnapshotWorkingState(self)
     end)
     frame:HookScript("OnMouseDown", function(self, button)
         if self.isEditing and button == "LeftButton" then
@@ -258,50 +451,39 @@ function lib:Register(frame, settingsTable)
         end
     end)
 
-    -- 3. Blizzard Handshake (EventRegistry)
-    EventRegistry:RegisterCallback("EditMode.Enter", function()
-        if InCombatLockdown() then return end
-        lib:ApplyLayout(frame)
-        frame.isEditing = true
-        frame:EnableMouse(true)
-        frame:SetMovable(true)
-        frame:RegisterForDrag("LeftButton")
-        SnapshotRevertPosition()
-        if frame.EditModeStartMock then frame:EditModeStartMock()
-        else
-            lib:Log("start else" .. frame:GetName())
-        end
-    end)
-
-    EventRegistry:RegisterCallback("EditMode.Exit", function()
-        if frame.isEditing then
-            frame:StopMovingOrSizing()
-        end
-        frame.isEditing = false
-        frame:EnableMouse(false)
-        frame:SetMovable(false)
-        if frame.EditModeStopMock then frame:EditModeStopMock()
-        else
-            lib:Log("stop else" .. frame:GetName())
-        end
-        if lib.selectionOverlay then
-            lib.selectionOverlay:Hide()
-            lib.selectionOverlay:SetParent(UIParent)
-            lib.selectionOverlay:SetFrameStrata("DIALOG")
-        end
-    end)
-
-    frame.SaveCurrentPosition = SaveCurrentPosition
-    frame.RevertPosition = RevertPosition
-    frame.SnapshotRevertPosition = SnapshotRevertPosition
-    frame.SnapshotCurrentPosition = SnapshotCurrentPosition
-
     -- Add to the library's internal tracker
     table.insert(lib.registeredFrames, frame)
 
 end
 
 if not lib.HooksInitialized then
+    -- Blizzard Handshake (EventRegistry)
+    EventRegistry:RegisterCallback("EditMode.Enter", function()
+        if InCombatLockdown() then return end
+        for _, f in ipairs(lib.registeredFrames) do
+            lib:ApplyLayout(f)
+            f.isEditing = true
+            f:EnableMouse(true)
+            f:SetMovable(true)
+            f:RegisterForDrag("LeftButton")
+            lib:SnapshotBaseState(f)
+            if f.EditModeStartMock then f:EditModeStartMock() end
+        end
+    end)
+
+    EventRegistry:RegisterCallback("EditMode.Exit", function()
+        for _, f in ipairs(lib.registeredFrames) do
+            if f.isEditing then
+                f:StopMovingOrSizing()
+            end
+            f.isEditing = false
+            f:EnableMouse(false)
+            f:SetMovable(false)
+            if f.EditModeStopMock then f:EditModeStopMock() end
+        end 
+        lib:ClearAttachOverlay()
+    end)
+
     hooksecurefunc(EditModeManagerFrame, "SelectLayout", function(self, layoutInfo)
         RunNextFrame(function()
             lib:Log("hooksecurefunc(EditModeManagerFrame, OnLayoutSelected")
@@ -317,7 +499,7 @@ if not lib.HooksInitialized then
     hooksecurefunc(EditModeManagerFrame, "SaveLayouts", function()
         lib:Log("Manager SaveLayouts detected!")
         for _, f in ipairs(lib.registeredFrames) do
-            f:SaveCurrentPosition()      -- Save to its specific table
+            lib:CommitWorkingState(f)      -- Save to its specific table
         end
     end)
 
@@ -327,18 +509,22 @@ if not lib.HooksInitialized then
         if EditModeManagerFrame.isSaving then return end 
     
         for _, f in ipairs(lib.registeredFrames or {}) do
-            if f.revertPositionState and f.RevertPosition then
-                f:RevertPosition()
+            if f.baseState then
+                lib:RevertState(f)
             end
         end
+    end)
+
+    hooksecurefunc(EditModeManagerFrame, "SelectSystem", function(self, frame)
+        lib:ClearAttachOverlay()
     end)
 
     if EditModeManagerFrame.RevertAllChangesButton then
         EditModeManagerFrame.RevertAllChangesButton:HookScript("OnClick", function()
             lib:Log("Physical Revert Button Clicked")
             for _, f in ipairs(lib.registeredFrames or {}) do
-                if f.revertPositionState and f.RevertPosition then
-                    f:RevertPosition()
+                if f.baseState then
+                    lib:RevertState(f)
                 end
             end
         end)
