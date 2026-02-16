@@ -584,3 +584,70 @@ function lib:CreateMediaSelector(container, label, key, mediaType, labelWidth)
     lib:AddElementRow(container, pair)
     return dropdown
 end
+function lib:CreateSpellIconSelector(container, label, key, iconList, labelWidth)
+    -- Create the EditBox display (matching your sleek button style)
+    local dropdown = CreateFrame("EditBox", nil, container, "InputBoxTemplate")
+    dropdown:SetSize(lib.CONFIG_EDIT_BOX_WIDTH, lib.CONFIG_EDIT_BOX_HEIGHT)
+    dropdown:SetAutoFocus(false)
+    dropdown:EnableMouse(false)
+
+    local clicker = CreateFrame("Button", nil, dropdown)
+    clicker:SetAllPoints(dropdown)
+    clicker:SetScript("OnClick", function()
+        MenuUtil.CreateContextMenu(dropdown, function(owner, rootDescription)
+            rootDescription:CreateTitle("Select " .. label)
+            
+            -- 1. Get the keys so we can sort them
+            local sortedIDs = {}
+            for spellId in pairs(iconList) do
+                table.insert(sortedIDs, spellId)
+            end
+            
+            -- 2. Sort keys based on your .order field
+            table.sort(sortedIDs, function(a, b)
+                return iconList[a].order < iconList[b].order
+            end)
+            
+            -- 3. Iterate through the sorted IDs
+            for _, spellId in ipairs(sortedIDs) do
+                local data = iconList[spellId]
+                local displayName = data.label -- Use the label field
+                
+                local spellInfo = C_Spell.GetSpellInfo(spellId)
+                local texture = spellInfo and spellInfo.iconID
+                
+                local button = rootDescription:CreateButton(displayName, function()
+                    dropdown:SetText(displayName)
+                    
+                    local cfg = lib:GetOrCreateConfigFrame()
+                    if cfg and cfg.target and cfg.target.workingState then
+                        cfg.target.workingState[key] = spellId
+                        if cfg.target.UpdateFromState then
+                            cfg.target:UpdateFromState(cfg.target.workingState)
+                        end
+                    end
+                end)
+                
+                -- Add the icon preview
+                if texture then
+                    button:AddInitializer(function(btn)
+                        local icon = btn:AttachTexture()
+                        icon:SetSize(16, 16)
+                        icon:SetPoint("LEFT", 5, 0)
+                        icon:SetTexture(texture)
+                        btn.fontString:SetPoint("LEFT", icon, "RIGHT", 5, 0)
+                    end)
+                end
+            end
+        end)
+    end)
+
+    -- Visually consistent with your Anchor dropdown
+    if dropdown.Left then dropdown.Left:SetAlpha(0.5) end
+
+    -- Glue it to the container with your label pair system
+    local pair = lib:CreateLabelElementPair(container, label, dropdown, lib.CONFIG_FRAME_WIDTH, labelWidth)
+    lib:AddElementRow(container, pair)
+    
+    return dropdown
+end
