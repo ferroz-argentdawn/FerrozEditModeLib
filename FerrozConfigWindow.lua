@@ -1,21 +1,78 @@
 local addonName, ns = ...
 local lib = LibStub:GetLibrary("FerrozEditModeLib-1.0")
+local LSM = LibStub("LibSharedMedia-3.0")
 
 lib.CONFIG_FRAME_WIDTH = 400
 lib.CONFIG_FRAME_HALF_WIDTH = lib.CONFIG_FRAME_WIDTH / 2
-lib.CONFIG_FRAME_HEIGHT = 300
+lib.CONFIG_FRAME_HEIGHT = 400
 lib.CONFIG_FRAME_PADDING = 10
 lib.CONFIG_EDIT_BOX_WIDTH = 145 --I think technically this gets ignored
 lib.CONFIG_EDIT_BOX_HEIGHT = 26
+lib.CONFIG_BUTTON_HEIGHT = lib.CONFIG_EDIT_BOX_HEIGHT
 lib.CONFIG_ROW_HEIGHT = 30
 lib.CONFIG_ROW_LABEL_WIDTH = 45
+lib.CONFIG_ROW_SPACING = 5
 lib.ANCHOR_POINTS = {
     "TOPLEFT", "TOP", "TOPRIGHT", "LEFT", "CENTER", "RIGHT", "BOTTOMLEFT", "BOTTOM", "BOTTOMRIGHT"
+}
+lib.DEFAULT_MEDIA ={
+    statusbar = {
+        { name = " Default", path = [[Interface\Buttons\WHITE8X8]] },
+        { name = "Blizzard", path = [[Interface\TargetingFrame\UI-StatusBar]] },
+        { name = "Raid", path = [[Interface\RaidFrame\Raid-Bar-Hp-Fill]] },
+        { name = "Glow", path = [[Interface\TargetingFrame\UI-StatusBar-Glow]] },
+        { name = "Classic", path = [[Interface\TargetingFrame\UI-TargetingFrame-BarFill]] },
+    },
+    font= {
+        {name = " Default", path = [[Fonts\FRIZQT__.TTF]] },
+        { name = "Arial", path = [[Fonts\ARIALN.TTF]] },
+        { name = "Skurri", path = [[Fonts\skurri.ttf]] },
+        { name = "Morpheus", path = [[Fonts\MORPHEUS.ttf]] }
+    }
 }
 -- rounds toward zero regardless of positive or negative
 function lib:RoundCoordinates(num)
     local val = (num > 0) and math.floor(num) or math.ceil(num)
     return tostring(val)
+end
+
+function lib:NormalizePath(p)
+    local path = tostring(p or "") 
+    path = path:lower():gsub("\\\\", "\\")
+    path = path:gsub("%.blp$", ""):gsub("%.tga$", ""):gsub("%.ttf$", "")
+    return path
+end
+
+function lib:GetMediaNameFromPath(mediaType, path)
+    if not path then return "Unknown" end
+    local defaults = lib.DEFAULT_MEDIA[mediaType]
+    local normalizedInput = lib:NormalizePath(path)
+
+    -- 1. Check Defaults
+    for _, item in ipairs(defaults) do
+        -- Check against the normalized string path
+        if lib:NormalizePath(item.path) == normalizedInput then 
+            return item.name 
+        end
+        -- ALSO check if the input is a number that matches a known FileID
+        -- (This handles 130871 matching your " Default" bar)
+        if type(path) == "number" and item.fileID == path then
+            return item.name
+        end
+    end
+
+    -- 2. Check LibSharedMedia
+    if LSM then
+        local keys = LSM:List(mediaType)
+        for _, name in ipairs(keys) do
+            local lsmPath = LSM:Fetch(mediaType, name)
+            if lib:NormalizePath(lsmPath) == normalizedInput then
+                return name
+            end
+        end
+    end
+
+    return "Custom"
 end
 
 function lib:AddElementRow(container, content)
@@ -31,11 +88,11 @@ function lib:AddElementRow(container, content)
     return row
 end
 
-function lib:CreateLabelElementPair(container, labelText, element, width)
+function lib:CreateLabelElementPair(container, labelText, element, width, labelWidth)
     local row = CreateFrame("Frame", nil, container)
-    row:SetSize(width, lib.CONFIG_ROW_HEIGHT)
+    row:SetSize(width or lib.CONFIG_FRAME_WIDTH, lib.CONFIG_ROW_HEIGHT)
     row.Label = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    row.Label:SetSize(lib.CONFIG_ROW_LABEL_WIDTH, lib.CONFIG_ROW_HEIGHT)
+    row.Label:SetSize(labelWidth or lib.CONFIG_ROW_LABEL_WIDTH, lib.CONFIG_ROW_HEIGHT)
     row.Label:SetPoint("LEFT", row, "LEFT", lib.CONFIG_FRAME_PADDING, 0)
     row.Label:SetText(labelText)
     row.Label:SetJustifyH("LEFT")
@@ -94,12 +151,15 @@ function lib:GetOrCreateConfigFrame()
         --close button
         f.close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
         f.close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -2, -2)
+        f.close:HookScript("OnClick", function()
+            f.previousTarget = nil 
+        end)
         --flex container, vertical layout
         f.flexContainer = CreateFrame("Frame", nil, f, "VerticalLayoutFrame")
         f.flexContainer.fixedWidth = lib.CONFIG_FRAME_WIDTH
         f.flexContainer:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -f.title:GetHeight() - 2*lib.CONFIG_FRAME_PADDING)
         f.flexContainer:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, -f.title:GetHeight() - 2*lib.CONFIG_FRAME_PADDING)
-        f.flexContainer.spacing = 5
+        f.flexContainer.spacing = lib.CONFIG_ROW_SPACING
 
         --add standard elements
         f.standardControls = {}
@@ -111,20 +171,23 @@ function lib:GetOrCreateConfigFrame()
         f.standardControls.relativeFrame, f.standardControls.relativePoint = lib:CreateRelativeFrameAnchorControls(f.flexContainer)
         
         f.frameSpecificControls = {}
-        f.frameSpecificFlexContainer = CreateFrame("Frame", nil, f.flexContainer, "VerticalLayoutFrame")
+        f.frameSpecificSocket = CreateFrame("Frame", nil, f.flexContainer)
         f.flexContainer.nextIndex = (f.flexContainer.nextIndex or 0) + 1
-        f.frameSpecificFlexContainer.layoutIndex = f.flexContainer.nextIndex
-        f.frameSpecificFlexContainer:SetPoint("LEFT")
-        f.frameSpecificFlexContainer:SetPoint("RIGHT")
+        f.frameSpecificSocket.layoutIndex = f.flexContainer.nextIndex
+        f.frameSpecificSocket:SetPoint("LEFT")
+        f.frameSpecificSocket:SetPoint("RIGHT")
+        f.frameSpecificSocket.fixedWidth = lib.CONFIG_FRAME_WIDTH 
+        f.frameSpecificSocket:SetSize(lib.CONFIG_FRAME_WIDTH, 1)
+        lib:AddHR(f.flexContainer)
         f.revertBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        f.revertBtn:SetHeight(lib.CONFIG_EDIT_BOX_HEIGHT)
+        f.revertBtn:SetHeight(lib.CONFIG_BUTTON_HEIGHT)
         f.revertBtn:SetText("Revert Changes")
         f.revertBtn:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", lib.CONFIG_FRAME_PADDING , lib.CONFIG_FRAME_PADDING)
         f.revertBtn:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -lib.CONFIG_FRAME_PADDING, lib.CONFIG_FRAME_PADDING)
         f.revertBtn:SetScript("OnClick", function() lib:RevertState(f.target) end)
 
         f.resetBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        f.resetBtn:SetHeight(lib.CONFIG_EDIT_BOX_HEIGHT)
+        f.resetBtn:SetHeight(lib.CONFIG_BUTTON_HEIGHT)
         f.resetBtn:SetText("Reset to Default")
         f.resetBtn:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -lib.CONFIG_FRAME_PADDING, lib.CONFIG_FRAME_PADDING)
         f.resetBtn:SetPoint("BOTTOMLEFT", f, "BOTTOM", lib.CONFIG_FRAME_PADDING, lib.CONFIG_FRAME_PADDING)
@@ -134,46 +197,78 @@ function lib:GetOrCreateConfigFrame()
     end
     return self.configFrame
 end
+function lib:ClearFrameSpecificControls()
+    local cfg = self:GetOrCreateConfigFrame()
+    local socket = cfg.frameSpecificSocket
+
+    if socket.attachedPlugin then
+        socket.attachedPlugin:SetParent(cfg.target)
+        socket.attachedPlugin:Hide()
+        socket.attachedPlugin = nil
+    end
+
+    cfg.frameSpecificControls = {}
+    socket:SetHeight(1) -- Collapse the space
+end
+function lib:AttachFrameSpecificControls(targetFrame)
+    local cfg = self:GetOrCreateConfigFrame()
+    local socket = cfg.frameSpecificSocket
+    cfg.frameSpecificControls = {}
+
+    if targetFrame.GetOrCreateFrameSpecificControls and type(targetFrame.GetOrCreateFrameSpecificControls) == "function" then
+        -- 1. Get the controls table and the single Plugin Frame Container
+        local controls, pluginFrame = targetFrame:GetOrCreateFrameSpecificControls(socket)
+        cfg.frameSpecificControls = controls or {}
+
+        if pluginFrame then
+            pluginFrame:SetParent(socket)
+            pluginFrame:ClearAllPoints()
+            pluginFrame:SetPoint("TOPLEFT", socket, "TOPLEFT")
+            pluginFrame:SetPoint("TOPRIGHT", socket, "TOPRIGHT")
+            if pluginFrame.Layout then pluginFrame:Layout() end
+            pluginFrame:Show()
+            socket.attachedPlugin = pluginFrame
+            socket:SetHeight(pluginFrame:GetHeight() or 1)
+        end
+    end
+    cfg.flexContainer:MarkDirty()
+    cfg.flexContainer:Layout()
+
+    local totalHeight = cfg.flexContainer:GetHeight() + cfg.title:GetHeight() + 4*lib.CONFIG_FRAME_PADDING +  lib.CONFIG_EDIT_BOX_HEIGHT
+    cfg:SetHeight(totalHeight)
+end
 function lib:ShowConfigForFrame(targetFrame)
     --if not lib.DEBUG_MODE then return end
-    local config = self:GetOrCreateConfigFrame()
-    config.target = targetFrame
-    config.title:SetText(targetFrame.systemName or "Frame Settings")
+    local cfg = self:GetOrCreateConfigFrame()
+    cfg.target = targetFrame
+    cfg.title:SetText(targetFrame.systemName or "Frame Settings")
     --standard elements
     if targetFrame.workingState then
         local ws = targetFrame.workingState
-        if config.standardControls.widthControl then config.standardControls.widthControl.slider:SetValue(ws.width or targetFrame:GetWidth()) end
-        if config.standardControls.heightControl then config.standardControls.heightControl.slider:SetValue(ws.height or targetFrame:GetHeight()) end
-        if config.standardControls.scaleControl then config.standardControls.scaleControl.slider:SetValue(ws.scale or 1) end
-        if config.standardControls.xControl then config.standardControls.xControl:SetText(lib:RoundCoordinates(ws.xOfs)) end
-        if config.standardControls.yControl then config.standardControls.yControl:SetText(lib:RoundCoordinates(ws.yOfs)) end
-        if config.standardControls.sourceFrame then config.standardControls.sourceFrame:SetText(targetFrame:GetName() or "Unnamed") end
-        if config.standardControls.sourcePoint then config.standardControls.sourcePoint:SetText(ws.point or "CENTER") end
+        if cfg.standardControls.widthControl then cfg.standardControls.widthControl.slider:SetValue(ws.width or targetFrame:GetWidth()) end
+        if cfg.standardControls.heightControl then cfg.standardControls.heightControl.slider:SetValue(ws.height or targetFrame:GetHeight()) end
+        if cfg.standardControls.scaleControl then cfg.standardControls.scaleControl.slider:SetValue(ws.scale or 1) end
+        if cfg.standardControls.xControl then cfg.standardControls.xControl:SetText(lib:RoundCoordinates(ws.xOfs)) end
+        if cfg.standardControls.yControl then cfg.standardControls.yControl:SetText(lib:RoundCoordinates(ws.yOfs)) end
+        if cfg.standardControls.sourceFrame then cfg.standardControls.sourceFrame:SetText(targetFrame:GetName() or "Unnamed") end
+        if cfg.standardControls.sourcePoint then cfg.standardControls.sourcePoint:SetText(ws.point or "CENTER") end
         local _unused_relFrame, relFrameName = lib:ResolveFrame(ws.relativeFrame)
-        if config.standardControls.relativeFrame then config.standardControls.relativeFrame:SetText(relFrameName) end
-        if config.standardControls.relativePoint then config.standardControls.relativePoint:SetText(ws.relativePoint or "CENTER") end
-    end
-    --todo frameSpecificFlexContainer if there is anything there 
-    
-    if config.frameSpecificFlexContainer then
-        if  targetFrame.InitCustomConfigFields and type(targetFrame.InitCustomConfigFields) == "function" then
-            --lib:AddHR(config.frameSpecificFlexContainer)
-            --config.standardControls = targetFrame:InitCustomConfigFields(config.frameSpecificFlexContainer)
-        else
-            --config.frameSpecificFlexContainer.clear
-        end
+        if cfg.standardControls.relativeFrame then cfg.standardControls.relativeFrame:SetText(relFrameName) end
+        if cfg.standardControls.relativePoint then cfg.standardControls.relativePoint:SetText(ws.relativePoint or "CENTER") end
     end
 
-    if targetFrame.isDirty then config.revertBtn:Enable() else config.revertBtn:Disable() end
+    lib:AttachFrameSpecificControls(targetFrame)
 
-    if(config.target ~= config.previousTarget ) then
+    if targetFrame.isDirty then cfg.revertBtn:Enable() else cfg.revertBtn:Disable() end
+
+    if(cfg.target ~= cfg.previousTarget ) then
         -- INTELLIGENT POSITIONING 
         local screenWidth = UIParent:GetWidth()
         local screenHeight = UIParent:GetHeight()
         local centerX, centerY = targetFrame:GetCenter()
 
         if centerX and centerY then
-            config:ClearAllPoints()
+            cfg:ClearAllPoints()
             -- Determine Horizontal side (if on left, show on right)
             local point = (centerX > screenWidth / 2) and "RIGHT" or "LEFT"
             local relPoint = (point == "LEFT") and "RIGHT" or "LEFT"
@@ -184,33 +279,35 @@ function lib:ShowConfigForFrame(targetFrame)
             local finalRelPoint = vPoint .. relPoint
             -- Offset slightly (e.g., 10px away) so it doesn't touch the frame
             local xOfs = (point == "LEFT") and 10 or -10
-            config:SetPoint(finalPoint, targetFrame, finalRelPoint, xOfs, 0)
-            local left, top = config:GetLeft(), config:GetTop()    
+            cfg:SetPoint(finalPoint, targetFrame, finalRelPoint, xOfs, 0)
+            local left, top = cfg:GetLeft(), cfg:GetTop()    
             if left and top then
-                config:ClearAllPoints()
-                config:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+                cfg:ClearAllPoints()
+                cfg:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
             end
         else
             -- Fallback if frame isn't rendered
-            config:ClearAllPoints()
-            config:SetPoint("CENTER", UIParent, "CENTER")
+            cfg:ClearAllPoints()
+            cfg:SetPoint("CENTER", UIParent, "CENTER")
         end
     end
-    config.previousTarget = nil
+    cfg.previousTarget = nil
 
-    config:SetAlpha(0)
-    config:Show()
-    config.flexContainer:Layout()
-    config:SetAlpha(1)
+    --TODO calculate height and reset config height to accomodate?
+
+    cfg:SetAlpha(0)
+    cfg:Show()
+    cfg.flexContainer:Layout()
+    cfg:SetAlpha(1)
 end
 function lib:ClearConfigMenu()
-    local config = self:GetOrCreateConfigFrame()
-    config:Hide()
-    config.previousTarget = config.target
-    config.target = nil
-    config:SetParent(UIParent)
-    config:SetFrameStrata("DIALOG")
-    --todo unhook binding handlers
+    local cfg = self:GetOrCreateConfigFrame()
+    cfg:Hide()
+    lib:ClearFrameSpecificControls()
+    cfg.previousTarget = cfg.target
+    cfg.target = nil
+    cfg:SetParent(UIParent)
+    cfg:SetFrameStrata("DIALOG")
 end
 
 function lib:CreateSliderRow(container, label, key, minValue, maxValue, step, onUpdateCallback)
@@ -237,9 +334,9 @@ function lib:CreateSliderRow(container, label, key, minValue, maxValue, step, on
     slider:SetScript("OnValueChanged", function(self, value)
         local formatStr = (step < 1) and "%.2f" or "%d"
         eb:SetText(string.format(formatStr, value))
-        local config = lib:GetOrCreateConfigFrame()
-        if config.target and config.target.workingState then
-            config.target.workingState[key] = value
+        local cfg = lib:GetOrCreateConfigFrame()
+        if cfg.target and cfg.target.workingState then
+            cfg.target.workingState[key] = value
         end
     end)
     eb:SetScript("OnEnterPressed", function(self)
@@ -289,8 +386,12 @@ function lib:RefreshConfigUI(frame)
 
         local _, relName = lib:ResolveFrame(ws.relativeFrame)
         f.standardControls.relativeFrame:SetText(relName)
-        if f.standardControls.relativePoint then 
+        if f.standardControls.relativePoint then
             f.standardControls.relativePoint:SetText(ws.relativePoint or "CENTER")
+        end
+
+        if frame.OnConfigRefresh then
+            frame:OnConfigRefresh(f, frame.workingState)
         end
 
         if f.revertBtn then
@@ -320,15 +421,15 @@ function lib:CreateXYControls(container)
     yPair:SetPoint("LEFT", xPair, "RIGHT", 0, 0)
     --local scripts
     local function UpdateCoords()
-        local config = lib:GetOrCreateConfigFrame()
-        if config.target and config.target.workingState then
-            config.target.workingState.xOfs = tonumber(xBox:GetText()) or 0
-            config.target.workingState.yOfs = tonumber(yBox:GetText()) or 0
+        local cfg = lib:GetOrCreateConfigFrame()
+        if cfg.target and cfg.target.workingState then
+            cfg.target.workingState.xOfs = tonumber(xBox:GetText()) or 0
+            cfg.target.workingState.yOfs = tonumber(yBox:GetText()) or 0
         end
     end
     local function OnCancel()
-        local config = lib:GetOrCreateConfigFrame()
-        if config.target then lib:RefreshConfigUI(config.target) end
+        local cfg = lib:GetOrCreateConfigFrame()
+        if cfg.target then lib:RefreshConfigUI(cfg.target) end
     end
     --set Scripts
     xBox:SetScript("OnEnterPressed", function(self) UpdateCoords(); self:ClearFocus() end)
@@ -385,10 +486,10 @@ function lib:CreateRelativeFrameAnchorControls(container)
 
     -- Input Logic for the "To" Box
     relToBox:SetScript("OnEnterPressed", function(self)
-        local config = lib:GetOrCreateConfigFrame()
-        if config.target and config.target.workingState then
+        local cfg = lib:GetOrCreateConfigFrame()
+        if cfg.target and cfg.target.workingState then
             relFrame,_unused_relFrameName = lib:ResolveFrame(self:GetText())
-            config.target.workingState.relativeFrame = relFrame
+            cfg.target.workingState.relativeFrame = relFrame
         end
         self:ClearFocus()
     end)
@@ -428,5 +529,58 @@ function lib:CreateAnchorDropdown(container, key)
 
     if dropdown.Left then dropdown.Left:SetAlpha(0.5) end
 
+    return dropdown
+end
+
+function lib:CreateMediaSelector(container, label, key, mediaType, labelWidth)
+    local dropdown = CreateFrame("EditBox", nil, container, "InputBoxTemplate")
+    dropdown:SetSize(lib.CONFIG_EDIT_BOX_WIDTH, lib.CONFIG_EDIT_BOX_HEIGHT)
+    dropdown:SetAutoFocus(false)
+    dropdown:EnableMouse(false)
+
+    local clicker = CreateFrame("Button", nil, dropdown)
+    clicker:SetAllPoints(dropdown)
+    clicker:SetScript("OnClick", function()
+        local sortedList = {}
+        local seenPaths = {}
+
+        for _, entry in ipairs(lib.DEFAULT_MEDIA[mediaType]) do
+            local cleanPath = lib:NormalizePath(entry.path)
+            if not seenPaths[cleanPath] then
+                table.insert(sortedList, { name = entry.name, path = entry.path })
+                seenPaths[cleanPath] = true
+            end
+        end
+
+        if LSM then
+            for name, path in pairs(LSM:HashTable(mediaType)) do
+                local cleanPath = lib:NormalizePath(path)
+                if not seenPaths[cleanPath] then
+                    table.insert(sortedList, { name = name, path = path })
+                    seenPaths[cleanPath] = true
+                end
+            end
+        end
+        table.sort(sortedList, function(a, b)
+            return a.name:lower() < b.name:lower() -- Compare the name field
+        end)
+
+        MenuUtil.CreateContextMenu(dropdown, function(owner, rootDescription)
+            rootDescription:CreateTitle("Select "..label)
+            for _, mm in ipairs(sortedList) do
+                rootDescription:CreateButton(mm.name, function()
+                    dropdown:SetText(mm.name)
+                    local cfg = lib:GetOrCreateConfigFrame()
+                    if cfg.target and cfg.target.workingState then
+                        cfg.target.workingState[key] = mm.path
+                        if cfg.target.UpdateMedia then cfg.target:UpdateMedia(mediaType) end
+                    end
+                end)
+            end
+        end)
+    end)
+
+    local pair = lib:CreateLabelElementPair(container, label, dropdown, lib.CONFIG_FRAME_WIDTH, labelWidth)
+    lib:AddElementRow(container, pair)
     return dropdown
 end

@@ -5,6 +5,7 @@ local LIB_VERSION = (tonumber(major) * 10000) + (tonumber(minor) * 100) + tonumb
 local LIB_NAME = "FerrozEditModeLib-1.0"
 local lib = LibStub:NewLibrary(LIB_NAME, LIB_VERSION)
 if not lib then return end --Guard, already loaded
+local LSM = LibStub("LibSharedMedia-3.0")
 
 --library variables
 lib.registeredFrames = {}
@@ -263,6 +264,13 @@ function lib:SnapshotBaseState(frame)
         height = frame:GetHeight(),
         width = frame:GetWidth(),
     }
+
+    if frame.GetFrameSpecificSnapshot then
+        local extra = frame:GetFrameSpecificSnapshot()
+        for k, v in pairs(extra) do
+            frame.baseState[k] = v
+        end
+    end
 end
 
 function lib:SnapshotWorkingState(frame)
@@ -281,6 +289,14 @@ function lib:SnapshotWorkingState(frame)
         height = (h and h > lib.MIN_HEIGHT) and h or nil,
         width = (w and w > lib.MIN_WIDTH) and w or nil,
     }
+
+    if frame.GetFrameSpecificSnapshot then
+        local extra = frame:GetFrameSpecificSnapshot()
+        for k, v in pairs(extra) do
+            currentState[k] = v
+        end
+    end
+
     if not frame.workingState then
         frame.workingState = lib:CreateObservableState(currentState, function(key, value)
             if frame._isInternalSynchronize then return end
@@ -321,6 +337,9 @@ function lib:CommitWorkingState(frame)
         height = cp.height,
         width = cp.width,
     }
+    if frame.CommitFrameSpecificFields then
+        frame:CommitFrameSpecificFields()
+    end
     frame.isDirty = false
     lib:SnapshotBaseState(frame)
     lib:RefreshConfigUI(frame)
