@@ -29,8 +29,7 @@ if FerrozEditModeLib then
     FerrozEditModeLib:Register(
         <ADDON>Frame, -- The frame to be managed
         <ADDON>_Settings,          -- Your addon's settings table (for position/scale by layout)
-        <ADDON>_OnEnter,           -- Function called when Edit Mode opens
-        <ADDON>_OnExit             -- Function called when Edit Mode closes
+        {height=DEFAULT_HEIGHT,width=DEFAULT_WIDTH},-- a table that has defaults
     )
 end
 ```

@@ -102,18 +102,20 @@ function lib:GetOrCreateConfigFrame()
         f.flexContainer.spacing = 5
 
         --add standard elements
-        f.widthControl = lib:CreateSliderRow(f.flexContainer, "Width", "width", lib.MIN_WIDTH, lib.MAX_WIDTH, lib.SIZE_STEP)
-        f.heightControl = lib:CreateSliderRow(f.flexContainer, "Height", "height", lib.MIN_HEIGHT, lib.MAX_HEIGHT, lib.SIZE_STEP)
-        f.scaleControl = lib:CreateSliderRow(f.flexContainer, "Scale", "scale", lib.MIN_SCALE, lib.MAX_SCALE, lib.SCALE_STEP)
-        f.xControl,f.yControl = lib:CreateXYControls(f.flexContainer)
-        f.sourceFrame, f.sourcePoint = lib:CreateFrameAnchorControls(f.flexContainer)
-        f.relativeFrame, f.relativePoint = lib:CreateRelativeFrameAnchorControls(f.flexContainer)
-
-        f.targetFrameFlexContainer = CreateFrame("Frame", nil, f.flexContainer, "VerticalLayoutFrame")
+        f.standardControls = {}
+        f.standardControls.widthControl = lib:CreateSliderRow(f.flexContainer, "Width", "width", lib.MIN_WIDTH, lib.MAX_WIDTH, lib.SIZE_STEP)
+        f.standardControls.heightControl = lib:CreateSliderRow(f.flexContainer, "Height", "height", lib.MIN_HEIGHT, lib.MAX_HEIGHT, lib.SIZE_STEP)
+        f.standardControls.scaleControl = lib:CreateSliderRow(f.flexContainer, "Scale", "scale", lib.MIN_SCALE, lib.MAX_SCALE, lib.SCALE_STEP)
+        f.standardControls.xControl,f.standardControls.yControl = lib:CreateXYControls(f.flexContainer)
+        f.standardControls.sourceFrame, f.standardControls.sourcePoint = lib:CreateFrameAnchorControls(f.flexContainer)
+        f.standardControls.relativeFrame, f.standardControls.relativePoint = lib:CreateRelativeFrameAnchorControls(f.flexContainer)
+        
+        f.frameSpecificControls = {}
+        f.frameSpecificFlexContainer = CreateFrame("Frame", nil, f.flexContainer, "VerticalLayoutFrame")
         f.flexContainer.nextIndex = (f.flexContainer.nextIndex or 0) + 1
-        f.targetFrameFlexContainer.layoutIndex = f.flexContainer.nextIndex
-        f.targetFrameFlexContainer:SetPoint("LEFT")
-        f.targetFrameFlexContainer:SetPoint("RIGHT")
+        f.frameSpecificFlexContainer.layoutIndex = f.flexContainer.nextIndex
+        f.frameSpecificFlexContainer:SetPoint("LEFT")
+        f.frameSpecificFlexContainer:SetPoint("RIGHT")
         f.revertBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
         f.revertBtn:SetHeight(lib.CONFIG_EDIT_BOX_HEIGHT)
         f.revertBtn:SetText("Revert Changes")
@@ -140,43 +142,61 @@ function lib:ShowConfigForFrame(targetFrame)
     --standard elements
     if targetFrame.workingState then
         local ws = targetFrame.workingState
-        if config.widthControl then config.widthControl.slider:SetValue(ws.width or targetFrame:GetWidth()) end
-        if config.heightControl then config.heightControl.slider:SetValue(ws.height or targetFrame:GetHeight()) end
-        if config.scaleControl then config.scaleControl.slider:SetValue(ws.scale or 1) end
-        if config.xControl then config.xControl:SetText(lib:RoundCoordinates(ws.xOfs)) end
-        if config.yControl then config.yControl:SetText(lib:RoundCoordinates(ws.yOfs)) end
-        if config.sourceFrame then config.sourceFrame:SetText(targetFrame:GetName() or "Unnamed") end
-        if config.sourcePoint then config.sourcePoint:SetText(ws.point or "CENTER") end
+        if config.standardControls.widthControl then config.standardControls.widthControl.slider:SetValue(ws.width or targetFrame:GetWidth()) end
+        if config.standardControls.heightControl then config.standardControls.heightControl.slider:SetValue(ws.height or targetFrame:GetHeight()) end
+        if config.standardControls.scaleControl then config.standardControls.scaleControl.slider:SetValue(ws.scale or 1) end
+        if config.standardControls.xControl then config.standardControls.xControl:SetText(lib:RoundCoordinates(ws.xOfs)) end
+        if config.standardControls.yControl then config.standardControls.yControl:SetText(lib:RoundCoordinates(ws.yOfs)) end
+        if config.standardControls.sourceFrame then config.standardControls.sourceFrame:SetText(targetFrame:GetName() or "Unnamed") end
+        if config.standardControls.sourcePoint then config.standardControls.sourcePoint:SetText(ws.point or "CENTER") end
         local _unused_relFrame, relFrameName = lib:ResolveFrame(ws.relativeFrame)
-        if config.relativeFrame then config.relativeFrame:SetText(relFrameName) end
-        if config.relativePoint then config.relativePoint:SetText(ws.relativePoint or "CENTER") end
+        if config.standardControls.relativeFrame then config.standardControls.relativeFrame:SetText(relFrameName) end
+        if config.standardControls.relativePoint then config.standardControls.relativePoint:SetText(ws.relativePoint or "CENTER") end
     end
-    --todo targetFrameFlexContainer if there is anything there 
+    --todo frameSpecificFlexContainer if there is anything there 
+    
+    if config.frameSpecificFlexContainer then
+        if  targetFrame.InitCustomConfigFields and type(targetFrame.InitCustomConfigFields) == "function" then
+            --lib:AddHR(config.frameSpecificFlexContainer)
+            --config.standardControls = targetFrame:InitCustomConfigFields(config.frameSpecificFlexContainer)
+        else
+            --config.frameSpecificFlexContainer.clear
+        end
+    end
+
     if targetFrame.isDirty then config.revertBtn:Enable() else config.revertBtn:Disable() end
 
-    -- INTELLIGENT POSITIONING 
-    local screenWidth = UIParent:GetWidth()
-    local screenHeight = UIParent:GetHeight()
-    local centerX, centerY = targetFrame:GetCenter()
+    if(config.target ~= config.previousTarget ) then
+        -- INTELLIGENT POSITIONING 
+        local screenWidth = UIParent:GetWidth()
+        local screenHeight = UIParent:GetHeight()
+        local centerX, centerY = targetFrame:GetCenter()
 
-    if centerX and centerY then
-        config:ClearAllPoints()
-        -- Determine Horizontal side (if on left, show on right)
-        local point = (centerX > screenWidth / 2) and "RIGHT" or "LEFT"
-        local relPoint = (point == "LEFT") and "RIGHT" or "LEFT"
-        -- Determine Vertical side (if on top, show on bottom)
-        local vPoint = (centerY > screenHeight / 2) and "TOP" or "BOTTOM"
-        -- Combine them (e.g., "TOPLEFT")
-        local finalPoint = vPoint .. point
-        local finalRelPoint = vPoint .. relPoint
-        -- Offset slightly (e.g., 10px away) so it doesn't touch the frame
-        local xOfs = (point == "LEFT") and 10 or -10
-        config:SetPoint(finalPoint, targetFrame, finalRelPoint, xOfs, 0)
-    else
-        -- Fallback if frame isn't rendered
-        config:ClearAllPoints()
-        config:SetPoint("CENTER", UIParent, "CENTER")
+        if centerX and centerY then
+            config:ClearAllPoints()
+            -- Determine Horizontal side (if on left, show on right)
+            local point = (centerX > screenWidth / 2) and "RIGHT" or "LEFT"
+            local relPoint = (point == "LEFT") and "RIGHT" or "LEFT"
+            -- Determine Vertical side (if on top, show on bottom)
+            local vPoint = (centerY > screenHeight / 2) and "TOP" or "BOTTOM"
+            -- Combine them (e.g., "TOPLEFT")
+            local finalPoint = vPoint .. point
+            local finalRelPoint = vPoint .. relPoint
+            -- Offset slightly (e.g., 10px away) so it doesn't touch the frame
+            local xOfs = (point == "LEFT") and 10 or -10
+            config:SetPoint(finalPoint, targetFrame, finalRelPoint, xOfs, 0)
+            local left, top = config:GetLeft(), config:GetTop()    
+            if left and top then
+                config:ClearAllPoints()
+                config:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+            end
+        else
+            -- Fallback if frame isn't rendered
+            config:ClearAllPoints()
+            config:SetPoint("CENTER", UIParent, "CENTER")
+        end
     end
+    config.previousTarget = nil
 
     config:SetAlpha(0)
     config:Show()
@@ -186,6 +206,7 @@ end
 function lib:ClearConfigMenu()
     local config = self:GetOrCreateConfigFrame()
     config:Hide()
+    config.previousTarget = config.target
     config.target = nil
     config:SetParent(UIParent)
     config:SetFrameStrata("DIALOG")
@@ -245,31 +266,31 @@ function lib:RefreshConfigUI(frame)
     if f and f:IsShown() and f.target == frame then
         local ws = frame.workingState
         -- Update Scale
-        if f.scaleControl and ws.scale then
-            f.scaleControl.slider:SetValue(ws.scale)
+        if f.standardControls.scaleControl and ws.scale then
+            f.standardControls.scaleControl.slider:SetValue(ws.scale)
         end
         -- Update Width/Height if you have them
-        if f.widthControl and ws.width then
-            f.widthControl.slider:SetValue(ws.width)
+        if f.standardControls.widthControl and ws.width then
+            f.standardControls.widthControl.slider:SetValue(ws.width)
         end
-        if f.heightControl and ws.height then
-            f.heightControl.slider:SetValue(ws.height)
+        if f.standardControls.heightControl and ws.height then
+            f.standardControls.heightControl.slider:SetValue(ws.height)
         end
-        if f.xControl and not f.xControl:HasFocus() then
-            f.xControl:SetText(lib:RoundCoordinates(ws.xOfs or 0))
+        if f.standardControls.xControl and not f.standardControls.xControl:HasFocus() then
+            f.standardControls.xControl:SetText(lib:RoundCoordinates(ws.xOfs or 0))
         end
-        if f.yControl and not f.yControl:HasFocus() then
-            f.yControl:SetText(lib:RoundCoordinates(ws.yOfs or 0))
+        if f.standardControls.yControl and not f.standardControls.yControl:HasFocus() then
+            f.standardControls.yControl:SetText(lib:RoundCoordinates(ws.yOfs or 0))
         end
-        f.sourceFrame:SetText(frame:GetName() or "Unnamed Frame")
-        if f.sourcePoint then
-            f.sourcePoint:SetText(ws.point or "CENTER")
+        f.standardControls.sourceFrame:SetText(frame:GetName() or "Unnamed Frame")
+        if f.standardControls.sourcePoint then
+            f.standardControls.sourcePoint:SetText(ws.point or "CENTER")
         end
 
         local _, relName = lib:ResolveFrame(ws.relativeFrame)
-        f.relativeFrame:SetText(relName)
-        if f.relativePoint then 
-            f.relativePoint:SetText(ws.relativePoint or "CENTER")
+        f.standardControls.relativeFrame:SetText(relName)
+        if f.standardControls.relativePoint then 
+            f.standardControls.relativePoint:SetText(ws.relativePoint or "CENTER")
         end
 
         if f.revertBtn then
