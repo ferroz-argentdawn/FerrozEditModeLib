@@ -182,7 +182,7 @@ function lib:ApplyState(frame, state)
         changed = true
     end
     if frame.UpdateFromState then
-        changed = changed or frame:UpdateFromState(state)
+        changed = frame:UpdateFromState(state) or changed
     end
     return changed
 end
@@ -250,7 +250,6 @@ function lib:ClearAttachOverlay()
     self:ClearConfigMenu()
 end
 
---previously local functions
 function lib:SnapshotBaseState(frame)
     local point, relFrame, rel, x, y = frame:GetPoint()
     lib:Log("Snapshotting revert position " .. (frame:GetName() or "Unknown") .. " - " .. lib:GetCurrentLayoutName())
@@ -346,8 +345,7 @@ function lib:CommitWorkingState(frame)
 end
 
 function lib:RevertState(frame)
-    if not frame or not frame.baseState then return end
-    if frame and not frame.isDirty then return end
+    if not frame or not frame.baseState or not frame.isDirty then return end
     frame._isInternalSynchronize = true
     lib:ApplyState(frame,frame.baseState)
     lib:SnapshotWorkingState(frame)

@@ -88,11 +88,13 @@ function lib:AddElementRow(container, content)
     return row
 end
 
-function lib:CreateLabelElementPair(container, labelText, element, width, labelWidth)
+function lib:CreateLabelElementPair(container, labelText, element, totalWidth, labelWidth)
+    totalWidth = totalWidth or lib.CONFIG_FRAME_WIDTH
+    labelWidth = labelWidth or lib.CONFIG_ROW_LABEL_WIDTH
     local row = CreateFrame("Frame", nil, container)
-    row:SetSize(width or lib.CONFIG_FRAME_WIDTH, lib.CONFIG_ROW_HEIGHT)
+    row:SetSize(totalWidth, lib.CONFIG_ROW_HEIGHT)
     row.Label = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    row.Label:SetSize(labelWidth or lib.CONFIG_ROW_LABEL_WIDTH, lib.CONFIG_ROW_HEIGHT)
+    row.Label:SetSize(labelWidth, lib.CONFIG_ROW_HEIGHT)
     row.Label:SetPoint("LEFT", row, "LEFT", lib.CONFIG_FRAME_PADDING, 0)
     row.Label:SetText(labelText)
     row.Label:SetJustifyH("LEFT")
@@ -105,8 +107,10 @@ function lib:CreateLabelElementPair(container, labelText, element, width, labelW
     return row
 end
 
-function lib:AddLabelElementRow(container, labelText, element)
-    local row = lib:CreateLabelElementPair(container, labelText, element, lib.CONFIG_FRAME_WIDTH)
+function lib:AddLabelElementRow(container, labelText, element, totalWidth, labelWidth)
+    totalWidth = totalWidth or lib.CONFIG_FRAME_WIDTH
+    labelWidth = labelWidth or lib.CONFIG_ROW_LABEL_WIDTH
+    local row = lib:CreateLabelElementPair(container, labelText, element, totalWidth, labelWidth)
     return lib:AddElementRow(container, row)
 end
 function lib:AddHR(container)
@@ -176,22 +180,31 @@ function lib:GetOrCreateConfigFrame()
         f.frameSpecificSocket.layoutIndex = f.flexContainer.nextIndex
         f.frameSpecificSocket:SetPoint("LEFT")
         f.frameSpecificSocket:SetPoint("RIGHT")
-        f.frameSpecificSocket.fixedWidth = lib.CONFIG_FRAME_WIDTH 
+        f.frameSpecificSocket.fixedWidth = lib.CONFIG_FRAME_WIDTH
         f.frameSpecificSocket:SetSize(lib.CONFIG_FRAME_WIDTH, 1)
         lib:AddHR(f.flexContainer)
+
+        local btnWidth = (lib.CONFIG_FRAME_WIDTH-4*lib.CONFIG_FRAME_PADDING) / 3
         f.revertBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
         f.revertBtn:SetHeight(lib.CONFIG_BUTTON_HEIGHT)
         f.revertBtn:SetText("Revert Changes")
         f.revertBtn:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", lib.CONFIG_FRAME_PADDING , lib.CONFIG_FRAME_PADDING)
-        f.revertBtn:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -lib.CONFIG_FRAME_PADDING, lib.CONFIG_FRAME_PADDING)
         f.revertBtn:SetScript("OnClick", function() lib:RevertState(f.target) end)
+        f.revertBtn:SetWidth(btnWidth)
+
+        f.saveBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        f.saveBtn:SetHeight(lib.CONFIG_BUTTON_HEIGHT)
+        f.saveBtn:SetText("Save")
+        f.saveBtn:SetPoint("BOTTOMLEFT", f.revertBtn, "BOTTOMRIGHT", lib.CONFIG_FRAME_PADDING , 0)
+        f.saveBtn:SetScript("OnClick", function() lib:CommitWorkingState(f.target) end)
+        f.saveBtn:SetWidth(btnWidth)
 
         f.resetBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
         f.resetBtn:SetHeight(lib.CONFIG_BUTTON_HEIGHT)
         f.resetBtn:SetText("Reset to Default")
-        f.resetBtn:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -lib.CONFIG_FRAME_PADDING, lib.CONFIG_FRAME_PADDING)
-        f.resetBtn:SetPoint("BOTTOMLEFT", f, "BOTTOM", lib.CONFIG_FRAME_PADDING, lib.CONFIG_FRAME_PADDING)
+        f.resetBtn:SetPoint("BOTTOMLEFT", f.saveBtn, "BOTTOMRIGHT", lib.CONFIG_FRAME_PADDING , 0)
         f.resetBtn:SetScript("OnClick", function() lib:ResetState(f.target) end)
+        f.resetBtn:SetWidth(btnWidth)
         f:Hide()
         self.configFrame = f
     end
@@ -259,7 +272,13 @@ function lib:ShowConfigForFrame(targetFrame)
 
     lib:AttachFrameSpecificControls(targetFrame)
 
-    if targetFrame.isDirty then cfg.revertBtn:Enable() else cfg.revertBtn:Disable() end
+    if targetFrame.isDirty then
+        cfg.revertBtn:Enable()
+        cfg.saveBtn:Enable()
+     else 
+        cfg.revertBtn:Disable()
+        cfg.saveBtn:Disable()
+    end
 
     if(cfg.target ~= cfg.previousTarget ) then
         -- INTELLIGENT POSITIONING 
@@ -310,9 +329,11 @@ function lib:ClearConfigMenu()
     cfg:SetFrameStrata("DIALOG")
 end
 
-function lib:CreateSliderRow(container, label, key, minValue, maxValue, step, onUpdateCallback)
+function lib:CreateSliderRow(container, label, key, minValue, maxValue, step, labelWidth)
     local wrapper = CreateFrame("Frame")
-    wrapper:SetSize(lib.CONFIG_FRAME_WIDTH-lib.CONFIG_FRAME_PADDING - lib.CONFIG_ROW_LABEL_WIDTH, lib.CONFIG_ROW_HEIGHT)
+    totalWidth = totalWidth or lib.CONFIG_FRAME_WIDTH
+    labelWidth = labelWidth or lib.CONFIG_ROW_LABEL_WIDTH
+    wrapper:SetSize(totalWidth-lib.CONFIG_FRAME_PADDING - labelWidth, lib.CONFIG_ROW_HEIGHT)
     --Edit Box
     local eb = CreateFrame("EditBox", nil, wrapper, "InputBoxTemplate")
     eb:SetSize(40, lib.CONFIG_ROW_HEIGHT)
@@ -320,7 +341,7 @@ function lib:CreateSliderRow(container, label, key, minValue, maxValue, step, on
     eb:SetAutoFocus(false)
     --Slider
     local slider = CreateFrame("Slider", nil, wrapper, "MinimalSliderTemplate")
-    slider:SetPoint("LEFT", wrapper, "LEFT", lib.CONFIG_FRAME_PADDING, 0)
+    slider:SetPoint("LEFT", wrapper, "LEFT", 0, 0)
     slider:SetPoint("RIGHT", eb, "LEFT", -lib.CONFIG_FRAME_PADDING, 0)
     --slider:SetWidth(140)
     slider:SetMinMaxValues(minValue, maxValue)
@@ -353,7 +374,7 @@ function lib:CreateSliderRow(container, label, key, minValue, maxValue, step, on
         self:SetText(string.format(formatStr, value))
     end)
 
-    lib:AddLabelElementRow(container, label, wrapper)
+    lib:AddLabelElementRow(container, label, wrapper, totalWidth, labelWidth)
     return wrapper
 end
 
@@ -394,12 +415,12 @@ function lib:RefreshConfigUI(frame)
             frame:OnConfigRefresh(f, frame.workingState)
         end
 
-        if f.revertBtn then
-            if frame.isDirty then
-                f.revertBtn:Enable()
-            else
-                f.revertBtn:Disable()
-            end
+        if frame.isDirty then
+            f.revertBtn:Enable()
+            f.saveBtn:Enable()
+        else
+            f.revertBtn:Disable()
+            f.saveBtn:Disable()
         end
     end
 end
